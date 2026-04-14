@@ -14,7 +14,8 @@ const storage = new S3Storage({
 async function applyNamingPattern(
   pattern: string,
   originalName: string,
-  shopId?: string
+  shopId?: string,
+  exportType?: string
 ): Promise<string> {
   const now = new Date();
   const ext = originalName.split(".").pop() || "";
@@ -28,6 +29,7 @@ async function applyNamingPattern(
     "{datetime}": now.toISOString().replace(/[:-]/g, "").split(".")[0],
     "{random}": Math.random().toString(36).substring(2, 10),
     "{timestamp}": now.getTime().toString(),
+    "{export_type}": exportType || "",
   };
 
   // 从数据库获取店铺信息
@@ -44,6 +46,10 @@ async function applyNamingPattern(
       replacements["{shop_site}"] = shop.site;
       replacements["{shop_platform}"] = shop.platform;
       replacements["{shop}"] = shop.name;
+      // 如果没有传入exportType，使用店铺的export_type
+      if (!exportType && shop.export_type) {
+        replacements["{export_type}"] = shop.export_type;
+      }
     }
   }
 
@@ -83,6 +89,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get("file") as File | null;
     const ruleId = formData.get("ruleId") as string | null;
     const shopId = formData.get("shopId") as string | null;
+    const exportType = formData.get("exportType") as string | null;
 
     if (!file) {
       return NextResponse.json({ error: "没有上传文件" }, { status: 400 });
@@ -126,7 +133,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 应用命名规则（包含店铺和自定义变量）
-    const newFileName = await applyNamingPattern(pattern, file.name, shopId || undefined);
+    const newFileName = await applyNamingPattern(pattern, file.name, shopId || undefined, exportType || undefined);
 
     // 读取文件内容
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -146,6 +153,7 @@ export async function POST(request: NextRequest) {
       mime_type: file.type,
       rule_id: ruleId || null,
       shop_id: shopId || null,
+      export_type: exportType || null,
     });
 
     if (insertError) {

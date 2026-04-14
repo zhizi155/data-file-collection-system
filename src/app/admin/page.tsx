@@ -68,6 +68,7 @@ interface Shop {
   site: string;
   platform: string;
   description: string | null;
+  export_type: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -122,12 +123,12 @@ export default function AdminPage() {
   // 店铺模态框状态
   const [shopModalOpen, setShopModalOpen] = useState(false);
   const [editingShop, setEditingShop] = useState<Shop | null>(null);
-  const [shopForm, setShopForm] = useState({ name: "", site: "", platform: "", description: "" });
+  const [shopForm, setShopForm] = useState({ name: "", site: "", platform: "", description: "", export_type: "" });
   const [shopSaving, setShopSaving] = useState(false);
   const [deleteShopId, setDeleteShopId] = useState<string | null>(null);
   const [shopDeleting, setShopDeleting] = useState(false);
   const [importingShops, setImportingShops] = useState(false);
-  const [shopPreview, setShopPreview] = useState<{ site: string; platform: string; name: string }[]>([]);
+  const [shopPreview, setShopPreview] = useState<{ site: string; platform: string; name: string; export_type?: string }[]>([]);
 
   // 变量模态框状态
   const [varModalOpen, setVarModalOpen] = useState(false);
@@ -349,10 +350,10 @@ export default function AdminPage() {
   const openShopModal = (shop?: Shop) => {
     if (shop) {
       setEditingShop(shop);
-      setShopForm({ name: shop.name, site: shop.site, platform: shop.platform, description: shop.description || "" });
+      setShopForm({ name: shop.name, site: shop.site, platform: shop.platform, description: shop.description || "", export_type: shop.export_type || "" });
     } else {
       setEditingShop(null);
-      setShopForm({ name: "", site: "", platform: "", description: "" });
+      setShopForm({ name: "", site: "", platform: "", description: "", export_type: "" });
     }
     setShopPreview([]);
     setShopModalOpen(true);
@@ -403,13 +404,15 @@ export default function AdminPage() {
         setShopSaving(false);
       }
     } else if (shopForm.name && shopForm.site && shopForm.platform) {
-      // 单个添加
+      // 单个添加/编辑
       setShopSaving(true);
       setError(null);
       try {
         const url = editingShop ? "/api/shops" : "/api/shops";
         const method = editingShop ? "PUT" : "POST";
-        const body = editingShop ? { id: editingShop.id, ...shopForm } : shopForm;
+        const body = editingShop 
+          ? { id: editingShop.id, ...shopForm, export_type: shopForm.export_type || null } 
+          : { ...shopForm, export_type: shopForm.export_type || null };
         const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const data = await res.json();
         if (data.success) {
@@ -885,39 +888,50 @@ export default function AdminPage() {
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-lg">
                         <DialogHeader>
-                          <DialogTitle>添加店铺</DialogTitle>
+                          <DialogTitle>{editingShop ? "编辑店铺" : "添加店铺"}</DialogTitle>
                           <DialogDescription>上传 Excel 文件或手动输入店铺信息</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
                           {/* Excel 导入 */}
-                          <div className="space-y-2">
-                            <Label>Excel 文件导入</Label>
-                            <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-4 text-center">
-                              <Upload className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                              <p className="text-sm text-slate-500 mb-2">拖拽或点击上传 Excel 文件</p>
-                              <p className="text-xs text-slate-400 mb-2">Excel 需包含三列：站点、平台、店铺名</p>
-                              <input type="file" accept=".xlsx,.xls" onChange={handleShopFileChange} className="hidden" id="shop-file" />
-                              <label htmlFor="shop-file">
-                                <Button variant="outline" size="sm" asChild disabled={importingShops}>
-                                  <span>{importingShops ? "解析中..." : "选择文件"}</span>
-                                </Button>
-                              </label>
-                            </div>
-                            {shopPreview.length > 0 && (
-                              <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3">
-                                <p className="text-sm text-green-700 dark:text-green-300 mb-2">预览到 {shopPreview.length} 条数据：</p>
-                                <div className="max-h-32 overflow-y-auto text-xs space-y-1">
-                                  {shopPreview.slice(0, 5).map((s, i) => (
-                                    <p key={i} className="text-slate-600 dark:text-slate-400">{s.site} | {s.platform} | {s.name}</p>
-                                  ))}
-                                  {shopPreview.length > 5 && <p className="text-slate-400">...还有 {shopPreview.length - 5} 条</p>}
-                                </div>
+                          {!editingShop && (
+                            <div className="space-y-2">
+                              <Label>Excel 文件导入</Label>
+                              <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-4 text-center">
+                                <Upload className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                                <p className="text-sm text-slate-500 mb-2">拖拽或点击上传 Excel 文件</p>
+                                <p className="text-xs text-slate-400 mb-2">前三列：站点、平台、店铺名；D列为导出类型（可选）</p>
+                                <p className="text-xs text-slate-400">导出类型示例：订单、收入、广告费</p>
+                                <input type="file" accept=".xlsx,.xls" onChange={handleShopFileChange} className="hidden" id="shop-file" />
+                                <label htmlFor="shop-file">
+                                  <Button variant="outline" size="sm" asChild disabled={importingShops}>
+                                    <span>{importingShops ? "解析中..." : "选择文件"}</span>
+                                  </Button>
+                                </label>
                               </div>
-                            )}
-                          </div>
-                          <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t" /></div><div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">或手动添加</span></div></div>
+                              {shopPreview.length > 0 && (
+                                <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                                  <p className="text-sm text-green-700 dark:text-green-300 mb-2">预览到 {shopPreview.length} 条数据：</p>
+                                  <div className="max-h-32 overflow-y-auto text-xs space-y-1">
+                                    {shopPreview.slice(0, 5).map((s, i) => (
+                                      <p key={i} className="text-slate-600 dark:text-slate-400">
+                                        {s.site} | {s.platform} | {s.name}
+                                        {s.export_type && <span className="ml-2 text-blue-600">类型: {s.export_type}</span>}
+                                      </p>
+                                    ))}
+                                    {shopPreview.length > 5 && <p className="text-slate-400">...还有 {shopPreview.length - 5} 条</p>}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {editingShop && (
+                            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-2">
+                              <p className="text-sm text-blue-700 dark:text-blue-300">编辑模式：仅修改表单内容</p>
+                            </div>
+                          )}
+                          <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t" /></div><div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">手动{editingShop ? "编辑" : "添加"}</span></div></div>
                           {/* 手动添加 */}
-                          <div className="grid grid-cols-3 gap-4">
+                          <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                               <Label htmlFor="shopSite">站点</Label>
                               <Input id="shopSite" value={shopForm.site} onChange={(e) => setShopForm({ ...shopForm, site: e.target.value })} placeholder="如: 中国" />
@@ -926,9 +940,15 @@ export default function AdminPage() {
                               <Label htmlFor="shopPlatform">平台</Label>
                               <Input id="shopPlatform" value={shopForm.platform} onChange={(e) => setShopForm({ ...shopForm, platform: e.target.value })} placeholder="如: 淘宝" />
                             </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                               <Label htmlFor="shopName">店铺名</Label>
                               <Input id="shopName" value={shopForm.name} onChange={(e) => setShopForm({ ...shopForm, name: e.target.value })} placeholder="如: 旗舰店" />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="shopExportType">导出类型</Label>
+                              <Input id="shopExportType" value={shopForm.export_type} onChange={(e) => setShopForm({ ...shopForm, export_type: e.target.value })} placeholder="如: 订单、收入、广告费" />
                             </div>
                           </div>
                         </div>
@@ -953,6 +973,7 @@ export default function AdminPage() {
                         <TableHead>店铺名</TableHead>
                         <TableHead>站点</TableHead>
                         <TableHead>平台</TableHead>
+                        <TableHead>导出类型</TableHead>
                         <TableHead>状态</TableHead>
                         <TableHead>创建时间</TableHead>
                         <TableHead className="text-right">操作</TableHead>
@@ -964,6 +985,13 @@ export default function AdminPage() {
                           <TableCell className="font-medium">{shop.name}</TableCell>
                           <TableCell><Badge variant="outline">{shop.site}</Badge></TableCell>
                           <TableCell><Badge variant="secondary">{shop.platform}</Badge></TableCell>
+                          <TableCell>
+                            {shop.export_type ? (
+                              <Badge variant="default">{shop.export_type}</Badge>
+                            ) : (
+                              <span className="text-slate-400 text-sm">-</span>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Switch checked={shop.is_active} onCheckedChange={() => handleToggleShop(shop)} />

@@ -42,11 +42,12 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseClient();
 
     // 格式化数据
-    const formattedShops = shops.map((shop: { name: string; site: string; platform: string; description?: string }) => ({
+    const formattedShops = shops.map((shop: { name: string; site: string; platform: string; description?: string; export_type?: string }) => ({
       name: shop.name,
       site: shop.site,
       platform: shop.platform,
       description: shop.description || null,
+      export_type: shop.export_type || null,
       is_active: true,
     }));
 
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, name, site, platform, description, is_active } = body;
+    const { id, name, site, platform, description, is_active, export_type } = body;
 
     if (!id) {
       return NextResponse.json({ error: "缺少店铺ID" }, { status: 400 });
@@ -84,6 +85,7 @@ export async function PUT(request: NextRequest) {
     if (platform !== undefined) updates.platform = platform;
     if (description !== undefined) updates.description = description;
     if (is_active !== undefined) updates.is_active = is_active;
+    if (export_type !== undefined) updates.export_type = export_type;
 
     const supabase = getSupabaseClient();
     const { data, error } = await supabase

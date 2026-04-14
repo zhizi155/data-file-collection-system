@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import { Upload, File, X, CheckCircle, AlertCircle, Link, ShoppingBag } from "lucide-react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { Upload, File, X, CheckCircle, AlertCircle, Link, ShoppingBag, FileType } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,7 @@ interface Shop {
   name: string;
   site: string;
   platform: string;
+  export_type: string | null;
   is_active: boolean;
 }
 
@@ -31,6 +32,7 @@ export default function UploadPage() {
   const [error, setError] = useState<string | null>(null);
   const [shops, setShops] = useState<Shop[]>([]);
   const [selectedShop, setSelectedShop] = useState<string>("");
+  const [selectedExportType, setSelectedExportType] = useState<string>("");
   const [shopLoading, setShopLoading] = useState(true);
 
   // 加载店铺列表
@@ -50,6 +52,20 @@ export default function UploadPage() {
   useEffect(() => {
     loadShops();
   }, [loadShops]);
+
+  // 根据选中的店铺获取导出类型选项
+  const exportTypeOptions = useMemo(() => {
+    if (!selectedShop) return [];
+    const shop = shops.find((s) => s.id === selectedShop);
+    if (!shop || !shop.export_type) return [];
+    // 支持逗号分隔的多个类型
+    return shop.export_type.split(",").map((t) => t.trim()).filter(Boolean);
+  }, [selectedShop, shops]);
+
+  // 当店铺变化时，清空导出类型选择
+  useEffect(() => {
+    setSelectedExportType("");
+  }, [selectedShop]);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -85,6 +101,9 @@ export default function UploadPage() {
 
   const handleUpload = async () => {
     if (!file || !selectedShop) return;
+    // 如果店铺有导出类型，则必须选择
+    if (exportTypeOptions.length > 0 && !selectedExportType) return;
+    
     setUploading(true);
     setError(null);
     setResult(null);
@@ -93,6 +112,9 @@ export default function UploadPage() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("shopId", selectedShop);
+      if (selectedExportType) {
+        formData.append("exportType", selectedExportType);
+      }
 
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
@@ -113,6 +135,7 @@ export default function UploadPage() {
     setFile(null);
     setResult(null);
     setError(null);
+    setSelectedExportType("");
   };
 
   const formatFileSize = (bytes: number) => {
@@ -122,6 +145,7 @@ export default function UploadPage() {
   };
 
   const currentShop = shops.find((s) => s.id === selectedShop);
+  const hasExportType = exportTypeOptions.length > 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-8">
@@ -155,6 +179,7 @@ export default function UploadPage() {
                   {shops.map((shop) => (
                     <SelectItem key={shop.id} value={shop.id}>
                       {shop.name} ({shop.site} - {shop.platform})
+                      {shop.export_type && <span className="ml-2 text-muted-foreground">[{shop.export_type}]</span>}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -168,6 +193,31 @@ export default function UploadPage() {
                 <p className="text-sm text-amber-600">暂无可用店铺，请先在管理后台添加店铺</p>
               )}
             </div>
+
+            {/* 导出类型选择（仅当店铺有设置时显示） */}
+            {hasExportType && (
+              <div className="space-y-2">
+                <Label htmlFor="exportType" className="flex items-center gap-2">
+                  <FileType className="w-4 h-4" />
+                  文件保存类型 <span className="text-red-500">*</span>
+                </Label>
+                <Select value={selectedExportType} onValueChange={setSelectedExportType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="请选择文件保存类型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {exportTypeOptions.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  店铺 "{currentShop?.name}" 的导出类型：{currentShop?.export_type}
+                </p>
+              </div>
+            )}
 
             {/* 拖拽上传区域 */}
             {!result && (
@@ -253,7 +303,7 @@ export default function UploadPage() {
             {file && (
               <Button 
                 onClick={handleUpload} 
-                disabled={uploading || !selectedShop || shopLoading} 
+                disabled={uploading || !selectedShop || (hasExportType && !selectedExportType) || shopLoading} 
                 className="w-full" 
                 size="lg"
               >

@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     const worksheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json<{ 站点?: string; 平台?: string; 店铺名?: string; Site?: string; Platform?: string; "Store Name"?: string }>(worksheet, { header: 1 });
+    const data = XLSX.utils.sheet_to_json<{ 站点?: string; 平台?: string; 店铺名?: string; Site?: string; Platform?: string; "Store Name"?: string; 导出类型?: string; "Export Type"?: string }>(worksheet, { header: 1 });
 
     if (data.length < 2) {
       return NextResponse.json({ error: "Excel 文件至少需要包含标题行和数据行" }, { status: 400 });
@@ -49,24 +49,30 @@ export async function POST(request: NextRequest) {
     const siteIndex = headerMap["站点"] ?? headerMap["Site"] ?? headerMap["site"] ?? -1;
     const platformIndex = headerMap["平台"] ?? headerMap["Platform"] ?? headerMap["platform"] ?? -1;
     const nameIndex = headerMap["店铺名"] ?? headerMap["店铺名称"] ?? headerMap["Store Name"] ?? headerMap["name"] ?? -1;
+    const exportTypeIndex = headerMap["导出类型"] ?? headerMap["Export Type"] ?? headerMap["export_type"] ?? -1;
 
     if (siteIndex === -1 || platformIndex === -1 || nameIndex === -1) {
       return NextResponse.json(
-        { error: "Excel 文件必须包含三列：站点、平台、店铺名（列名不区分大小写）" },
+        { error: "Excel 文件必须包含前三列：站点、平台、店铺名（列名不区分大小写），D列为导出类型（可选）" },
         { status: 400 }
       );
     }
 
     // 解析数据行
-    const shops: { site: string; platform: string; name: string }[] = [];
+    const shops: { site: string; platform: string; name: string; export_type?: string }[] = [];
     for (let i = 1; i < data.length; i++) {
       const row = data[i] as (string | number | undefined)[];
       const site = String(row[siteIndex] ?? "").trim();
       const platform = String(row[platformIndex] ?? "").trim();
       const name = String(row[nameIndex] ?? "").trim();
+      const exportType = exportTypeIndex !== -1 ? String(row[exportTypeIndex] ?? "").trim() : undefined;
 
       if (site && platform && name) {
-        shops.push({ site, platform, name });
+        const shop: { site: string; platform: string; name: string; export_type?: string } = { site, platform, name };
+        if (exportType) {
+          shop.export_type = exportType;
+        }
+        shops.push(shop);
       }
     }
 
