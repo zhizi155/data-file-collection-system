@@ -19,6 +19,14 @@
 │   └── start.sh            # 生产环境启动脚本
 ├── src/
 │   ├── app/                # 页面路由与布局
+│   │   ├── page.tsx        # 文件上传主页
+│   │   ├── admin/          # 管理后台
+│   │   │   ├── page.tsx    # 管理后台主页
+│   │   │   └── login/      # 登录页
+│   │   │       └── page.tsx
+│   │   └── api/            # API 路由
+│   │       ├── upload/      # 文件上传接口
+│   │       └── rules/      # 命名规则 CRUD 接口
 │   ├── components/ui/      # Shadcn UI 组件库
 │   ├── hooks/              # 自定义 Hooks
 │   ├── lib/                # 工具库
@@ -28,6 +36,39 @@
 ├── package.json            # 项目依赖管理
 └── tsconfig.json           # TypeScript 配置
 ```
+
+## 文件收集系统功能说明
+
+### 页面路由
+- `/` - 文件上传主页（用户上传文件）
+- `/admin/login` - 管理后台登录页（账号: admin，密码: admin）
+- `/admin` - 管理后台（命名规则配置）
+
+### API 接口
+- `POST /api/upload` - 文件上传（FormData，字段: file）
+- `GET /api/rules` - 获取所有命名规则
+- `POST /api/rules` - 创建命名规则
+- `PUT /api/rules` - 更新命名规则
+- `DELETE /api/rules?id=xxx` - 删除命名规则
+
+### 命名规则变量
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `{original}` | 原始文件名（不含扩展名） | `report` |
+| `{date}` | 当前日期 | `2026-04-14` |
+| `{time}` | 当前时间 | `151622` |
+| `{datetime}` | 完整日期时间 | `20260414T151622` |
+| `{random}` | 8位随机字符 | `abc12345` |
+| `{timestamp}` | 时间戳（毫秒） | `1713078982000` |
+
+### 数据库表
+- `naming_rules` - 命名规则配置表
+- `uploaded_files` - 上传文件记录表
+
+### 技术集成
+- **数据库**: Supabase (PostgreSQL)
+- **对象存储**: S3 兼容存储 (coze-coding-dev-sdk)
+- **前端状态**: 简单 localStorage 登录验证
 
 - 项目文件（如 app 目录、pages 目录、components 等）默认初始化到 `src/` 目录下。
 
