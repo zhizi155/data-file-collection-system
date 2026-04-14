@@ -317,6 +317,59 @@ export default function AdminPage() {
     }
   };
 
+  // 批量删除选中文件
+  const batchDeleteFiles = async () => {
+    if (selectedFiles.size === 0) {
+      setError("请先选择要删除的文件");
+      return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${selectedFiles.size} 条记录吗？此操作不可撤销。`)) {
+      return;
+    }
+
+    try {
+      setDownloading(true);
+      setDownloadProgress(0);
+      setDownloadStatus("正在删除...");
+
+      const fileIds = Array.from(selectedFiles);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const fileId of fileIds) {
+        setDownloadStatus(`正在删除: ${fileId.substring(0, 8)}...`);
+        try {
+          const res = await fetch(`/api/files?id=${fileId}`, { method: "DELETE" });
+          const data = await res.json();
+          if (data.success) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (err) {
+          failCount++;
+        }
+        setDownloadProgress(((successCount + failCount) / fileIds.length) * 100);
+      }
+
+      setSelectedFiles(new Set());
+      loadFiles();
+
+      setDownloadStatus(`删除完成！成功: ${successCount}, 失败: ${failCount}`);
+      setTimeout(() => {
+        setDownloading(false);
+        setDownloadProgress(0);
+        setDownloadStatus("");
+      }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+      setDownloading(false);
+      setDownloadProgress(0);
+      setDownloadStatus("");
+    }
+  };
+
   // 删除文件记录
   const handleDeleteFileRecord = async (fileId: string) => {
     if (!confirm("确定要删除这条记录吗？")) return;
@@ -729,6 +782,16 @@ export default function AdminPage() {
                       )}
                       {downloading ? "下载中..." : "批量下载"}
                       {selectedFiles.size > 0 && !downloading && ` (${selectedFiles.size})`}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={batchDeleteFiles}
+                      disabled={selectedFiles.size === 0 || downloading}
+                      className="gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      批量删除 {selectedFiles.size > 0 && `(${selectedFiles.size})`}
                     </Button>
                   </div>
                 </div>
