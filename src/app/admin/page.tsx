@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Plus,
   Edit2,
@@ -11,6 +12,9 @@ import {
   X,
   AlertCircle,
   FileText,
+  Upload,
+  ShoppingBag,
+  Variable,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,11 +39,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import Link from "next/link";
-import { Tooltip,
+import {
+  Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 interface NamingRule {
   id: string;
@@ -51,25 +57,60 @@ interface NamingRule {
   updated_at: string | null;
 }
 
+interface Shop {
+  id: string;
+  name: string;
+  site: string;
+  platform: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface CustomVariable {
+  id: string;
+  name: string;
+  value: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string | null;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [rules, setRules] = useState<NamingRule[]>([]);
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [variables, setVariables] = useState<CustomVariable[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("rules");
 
-  // 模态框状态
-  const [modalOpen, setModalOpen] = useState(false);
+  // 规则模态框状态
+  const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<NamingRule | null>(null);
-  const [formData, setFormData] = useState({
-    name: "",
-    pattern: "",
-    description: "",
-  });
-  const [saving, setSaving] = useState(false);
+  const [ruleForm, setRuleForm] = useState({ name: "", pattern: "", description: "" });
+  const [ruleSaving, setRuleSaving] = useState(false);
+  const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
+  const [ruleDeleting, setRuleDeleting] = useState(false);
 
-  // 删除确认
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // 店铺模态框状态
+  const [shopModalOpen, setShopModalOpen] = useState(false);
+  const [editingShop, setEditingShop] = useState<Shop | null>(null);
+  const [shopForm, setShopForm] = useState({ name: "", site: "", platform: "", description: "" });
+  const [shopSaving, setShopSaving] = useState(false);
+  const [deleteShopId, setDeleteShopId] = useState<string | null>(null);
+  const [shopDeleting, setShopDeleting] = useState(false);
+  const [importingShops, setImportingShops] = useState(false);
+  const [shopPreview, setShopPreview] = useState<{ site: string; platform: string; name: string }[]>([]);
+
+  // 变量模态框状态
+  const [varModalOpen, setVarModalOpen] = useState(false);
+  const [editingVar, setEditingVar] = useState<CustomVariable | null>(null);
+  const [varForm, setVarForm] = useState({ name: "", value: "", description: "" });
+  const [varSaving, setVarSaving] = useState(false);
+  const [deleteVarId, setDeleteVarId] = useState<string | null>(null);
+  const [varDeleting, setVarDeleting] = useState(false);
 
   // 检查登录状态
   useEffect(() => {
@@ -79,16 +120,23 @@ export default function AdminPage() {
     }
   }, [router]);
 
-  // 加载规则列表
-  const loadRules = useCallback(async () => {
+  // 加载所有数据
+  const loadData = useCallback(async () => {
     try {
-      const res = await fetch("/api/rules");
-      const data = await res.json();
-      if (data.success) {
-        setRules(data.data);
-      } else {
-        setError(data.error);
-      }
+      const [rulesRes, shopsRes, varsRes] = await Promise.all([
+        fetch("/api/rules"),
+        fetch("/api/shops"),
+        fetch("/api/variables"),
+      ]);
+      const [rulesData, shopsData, varsData] = await Promise.all([
+        rulesRes.json(),
+        shopsRes.json(),
+        varsRes.json(),
+      ]);
+
+      if (rulesData.success) setRules(rulesData.data);
+      if (shopsData.success) setShops(shopsData.data);
+      if (varsData.success) setVariables(varsData.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {
@@ -97,114 +145,270 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    loadRules();
-  }, [loadRules]);
+    loadData();
+  }, [loadData]);
 
-  // 打开新增/编辑模态框
-  const openModal = (rule?: NamingRule) => {
+  // ========== 命名规则操作 ==========
+  const openRuleModal = (rule?: NamingRule) => {
     if (rule) {
       setEditingRule(rule);
-      setFormData({
-        name: rule.name,
-        pattern: rule.pattern,
-        description: rule.description || "",
-      });
+      setRuleForm({ name: rule.name, pattern: rule.pattern, description: rule.description || "" });
     } else {
       setEditingRule(null);
-      setFormData({ name: "", pattern: "{original}", description: "" });
+      setRuleForm({ name: "", pattern: "{original}", description: "" });
     }
-    setModalOpen(true);
+    setRuleModalOpen(true);
   };
 
-  // 保存规则
-  const handleSave = async () => {
-    if (!formData.name || !formData.pattern) {
+  const handleSaveRule = async () => {
+    if (!ruleForm.name || !ruleForm.pattern) {
       setError("请填写名称和规则");
       return;
     }
-
-    setSaving(true);
+    setRuleSaving(true);
     setError(null);
-
     try {
       const url = editingRule ? "/api/rules" : "/api/rules";
       const method = editingRule ? "PUT" : "POST";
-      const body = editingRule
-        ? { id: editingRule.id, ...formData }
-        : formData;
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
+      const body = editingRule ? { id: editingRule.id, ...ruleForm } : ruleForm;
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
-
       if (data.success) {
-        setModalOpen(false);
-        loadRules();
+        setRuleModalOpen(false);
+        loadData();
       } else {
         setError(data.error);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
     } finally {
-      setSaving(false);
+      setRuleSaving(false);
     }
   };
 
-  // 切换启用状态
-  const handleToggleActive = async (rule: NamingRule) => {
+  const handleToggleRule = async (rule: NamingRule) => {
     try {
       const res = await fetch("/api/rules", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: rule.id,
-          is_active: !rule.is_active,
-        }),
+        body: JSON.stringify({ id: rule.id, is_active: !rule.is_active }),
       });
-
       const data = await res.json();
-      if (data.success) {
-        loadRules();
-      } else {
-        setError(data.error);
-      }
+      if (data.success) loadData();
+      else setError(data.error);
     } catch (err) {
       setError(err instanceof Error ? err.message : "更新失败");
     }
   };
 
-  // 删除规则
-  const handleDelete = async () => {
-    if (!deleteId) return;
-
-    setDeleting(true);
-    setError(null);
-
+  const handleDeleteRule = async () => {
+    if (!deleteRuleId) return;
+    setRuleDeleting(true);
     try {
-      const res = await fetch(`/api/rules?id=${deleteId}`, {
-        method: "DELETE",
-      });
-
+      const res = await fetch(`/api/rules?id=${deleteRuleId}`, { method: "DELETE" });
       const data = await res.json();
+      if (data.success) { setDeleteRuleId(null); loadData(); }
+      else setError(data.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setRuleDeleting(false);
+    }
+  };
 
+  // ========== 店铺操作 ==========
+  const openShopModal = (shop?: Shop) => {
+    if (shop) {
+      setEditingShop(shop);
+      setShopForm({ name: shop.name, site: shop.site, platform: shop.platform, description: shop.description || "" });
+    } else {
+      setEditingShop(null);
+      setShopForm({ name: "", site: "", platform: "", description: "" });
+    }
+    setShopPreview([]);
+    setShopModalOpen(true);
+  };
+
+  const handleShopFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingShops(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/shops/parse", { method: "POST", body: formData });
+      const data = await res.json();
       if (data.success) {
-        setDeleteId(null);
-        loadRules();
+        setShopPreview(data.shops);
       } else {
         setError(data.error);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败");
+      setError(err instanceof Error ? err.message : "解析失败");
     } finally {
-      setDeleting(false);
+      setImportingShops(false);
     }
   };
 
-  // 退出登录
+  const handleSaveShop = async () => {
+    if (shopPreview.length > 0) {
+      // 批量导入
+      setShopSaving(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/shops", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shops: shopPreview }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setShopModalOpen(false);
+          loadData();
+        } else {
+          setError(data.error);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "导入失败");
+      } finally {
+        setShopSaving(false);
+      }
+    } else if (shopForm.name && shopForm.site && shopForm.platform) {
+      // 单个添加
+      setShopSaving(true);
+      setError(null);
+      try {
+        const url = editingShop ? "/api/shops" : "/api/shops";
+        const method = editingShop ? "PUT" : "POST";
+        const body = editingShop ? { id: editingShop.id, ...shopForm } : shopForm;
+        const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (data.success) {
+          setShopModalOpen(false);
+          loadData();
+        } else {
+          setError(data.error);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "保存失败");
+      } finally {
+        setShopSaving(false);
+      }
+    } else {
+      setError("请填写完整信息或上传Excel文件");
+    }
+  };
+
+  const handleToggleShop = async (shop: Shop) => {
+    try {
+      const res = await fetch("/api/shops", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: shop.id, is_active: !shop.is_active }),
+      });
+      const data = await res.json();
+      if (data.success) loadData();
+      else setError(data.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新失败");
+    }
+  };
+
+  const handleDeleteShop = async () => {
+    if (!deleteShopId) return;
+    setShopDeleting(true);
+    try {
+      const res = await fetch(`/api/shops?id=${deleteShopId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) { setDeleteShopId(null); loadData(); }
+      else setError(data.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setShopDeleting(false);
+    }
+  };
+
+  const handleClearAllShops = async () => {
+    if (!confirm("确定要清空所有店铺吗？此操作不可撤销。")) return;
+    try {
+      const res = await fetch("/api/shops?clearAll=true", { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) loadData();
+      else setError(data.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "清空失败");
+    }
+  };
+
+  // ========== 自定义变量操作 ==========
+  const openVarModal = (v?: CustomVariable) => {
+    if (v) {
+      setEditingVar(v);
+      setVarForm({ name: v.name, value: v.value, description: v.description || "" });
+    } else {
+      setEditingVar(null);
+      setVarForm({ name: "", value: "", description: "" });
+    }
+    setVarModalOpen(true);
+  };
+
+  const handleSaveVar = async () => {
+    if (!varForm.name || !varForm.value) {
+      setError("请填写变量名和值");
+      return;
+    }
+    setVarSaving(true);
+    setError(null);
+    try {
+      const url = editingVar ? "/api/variables" : "/api/variables";
+      const method = editingVar ? "PUT" : "POST";
+      const body = editingVar ? { id: editingVar.id, ...varForm } : varForm;
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (data.success) {
+        setVarModalOpen(false);
+        loadData();
+      } else {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setVarSaving(false);
+    }
+  };
+
+  const handleToggleVar = async (v: CustomVariable) => {
+    try {
+      const res = await fetch("/api/variables", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: v.id, is_active: !v.is_active }),
+      });
+      const data = await res.json();
+      if (data.success) loadData();
+      else setError(data.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新失败");
+    }
+  };
+
+  const handleDeleteVar = async () => {
+    if (!deleteVarId) return;
+    setVarDeleting(true);
+    try {
+      const res = await fetch(`/api/variables?id=${deleteVarId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) { setDeleteVarId(null); loadData(); }
+      else setError(data.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setVarDeleting(false);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem("admin_logged_in");
     localStorage.removeItem("admin_login_time");
@@ -225,7 +429,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
       {/* 头部 */}
       <header className="bg-white dark:bg-slate-800 shadow-sm border-b dark:border-slate-700">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Settings className="w-6 h-6 text-slate-600 dark:text-slate-400" />
             <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
@@ -233,10 +437,7 @@ export default function AdminPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 mr-4"
-            >
+            <Link href="/" className="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 mr-4">
               返回上传页
             </Link>
             <Button variant="outline" size="sm" onClick={handleLogout}>
@@ -247,278 +448,417 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-8">
         {error && (
           <div className="mb-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-3 text-red-700 dark:text-red-300">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
             <span>{error}</span>
-            <button
-              onClick={() => setError(null)}
-              className="ml-auto text-red-500 hover:text-red-700"
-            >
+            <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        <Card className="shadow-lg">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5" />
-                  命名规则管理
-                </CardTitle>
-                <CardDescription>
-                  配置文件上传时的命名规则，支持变量替换
-                </CardDescription>
-              </div>
-              <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-                <DialogTrigger asChild>
-                  <Button onClick={() => openModal()}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    新增规则
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>
-                      {editingRule ? "编辑规则" : "新增规则"}
-                    </DialogTitle>
-                    <DialogDescription>
-                      {editingRule
-                        ? "修改命名规则配置"
-                        : "创建一个新的命名规则"}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name">规则名称</Label>
-                      <Input
-                        id="name"
-                        value={formData.name}
-                        onChange={(e) =>
-                          setFormData({ ...formData, name: e.target.value })
-                        }
-                        placeholder="例如: 日期-时间格式"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="pattern">命名模式</Label>
-                      <Input
-                        id="pattern"
-                        value={formData.pattern}
-                        onChange={(e) =>
-                          setFormData({ ...formData, pattern: e.target.value })
-                        }
-                        placeholder="{date}_{time}_{original}"
-                      />
-                      <p className="text-xs text-slate-500">
-                        支持变量: {"{original}"} {"{date}"} {"{time}"} {"{datetime}"} {"{random}"} {"{timestamp}"}
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="description">描述说明</Label>
-                      <Textarea
-                        id="description"
-                        value={formData.description}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            description: e.target.value,
-                          })
-                        }
-                        placeholder="规则的用途说明..."
-                        rows={3}
-                      />
-                    </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="rules" className="gap-2">
+              <FileText className="w-4 h-4" />
+              命名规则
+            </TabsTrigger>
+            <TabsTrigger value="shops" className="gap-2">
+              <ShoppingBag className="w-4 h-4" />
+              店铺列表
+              {shops.length > 0 && <Badge variant="secondary" className="ml-1">{shops.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="variables" className="gap-2">
+              <Variable className="w-4 h-4" />
+              自定义变量
+              {variables.length > 0 && <Badge variant="secondary" className="ml-1">{variables.length}</Badge>}
+            </TabsTrigger>
+          </TabsList>
+
+          {/* 命名规则管理 */}
+          <TabsContent value="rules">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="w-5 h-5" />
+                      命名规则管理
+                    </CardTitle>
+                    <CardDescription>配置文件上传时的命名规则，支持变量替换</CardDescription>
                   </div>
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => setModalOpen(false)}
-                    >
-                      取消
-                    </Button>
-                    <Button onClick={handleSave} disabled={saving}>
-                      {saving ? "保存中..." : "保存"}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="text-center py-8 text-slate-500">
-                加载中...
-              </div>
-            ) : rules.length === 0 ? (
-              <div className="text-center py-8 text-slate-500">
-                暂无命名规则，点击上方按钮添加
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>规则名称</TableHead>
-                    <TableHead>命名模式</TableHead>
-                    <TableHead>描述</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>创建时间</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rules.map((rule) => (
-                    <TableRow key={rule.id}>
-                      <TableCell className="font-medium">
-                        {rule.name}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {rule.pattern}
-                      </TableCell>
-                      <TableCell className="text-slate-500">
-                        {rule.description || "-"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            checked={rule.is_active}
-                            onCheckedChange={() => handleToggleActive(rule)}
-                          />
-                          <span
-                            className={`text-xs ${
-                              rule.is_active
-                                ? "text-green-600"
-                                : "text-slate-400"
-                            }`}
-                          >
-                            {rule.is_active ? "启用" : "禁用"}
-                          </span>
+                  <Dialog open={ruleModalOpen} onOpenChange={setRuleModalOpen}>
+                    <DialogTrigger asChild>
+                      <Button onClick={() => openRuleModal()}><Plus className="w-4 h-4 mr-2" />新增规则</Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>{editingRule ? "编辑规则" : "新增规则"}</DialogTitle>
+                        <DialogDescription>{editingRule ? "修改命名规则配置" : "创建一个新的命名规则"}</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="ruleName">规则名称</Label>
+                          <Input id="ruleName" value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder="例如: 日期-时间格式" />
                         </div>
-                      </TableCell>
-                      <TableCell className="text-slate-500 text-sm">
-                        {formatDate(rule.created_at)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openModal(rule)}
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>编辑</TooltipContent>
-                          </Tooltip>
-                          <Dialog
-                            open={deleteId === rule.id}
-                            onOpenChange={(open) =>
-                              !open && setDeleteId(null)
-                            }
-                          >
-                            <DialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setDeleteId(rule.id)}
-                                className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>确认删除</DialogTitle>
-                                <DialogDescription>
-                                  确定要删除规则 &quot;{rule.name}&quot; 吗？此操作无法撤销。
-                                </DialogDescription>
-                              </DialogHeader>
-                              <DialogFooter>
-                                <Button
-                                  variant="outline"
-                                  onClick={() => setDeleteId(null)}
-                                >
-                                  取消
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  onClick={handleDelete}
-                                  disabled={deleting}
-                                >
-                                  {deleting ? "删除中..." : "删除"}
-                                </Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
+                        <div className="space-y-2">
+                          <Label htmlFor="rulePattern">命名模式</Label>
+                          <Input id="rulePattern" value={ruleForm.pattern} onChange={(e) => setRuleForm({ ...ruleForm, pattern: e.target.value })} placeholder="{date}_{original}" />
+                          <p className="text-xs text-slate-500">支持变量: {"{original}"} {"{date}"} {"{time}"} {"{datetime}"} {"{random}"} {"{timestamp}"} {"{shop}"} {"{shop_name}"} {"{shop_site}"} {"{shop_platform}"} {"{自定义变量}"}</p>
                         </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                        <div className="space-y-2">
+                          <Label htmlFor="ruleDesc">描述说明</Label>
+                          <Textarea id="ruleDesc" value={ruleForm.description} onChange={(e) => setRuleForm({ ...ruleForm, description: e.target.value })} placeholder="规则的用途说明..." rows={3} />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setRuleModalOpen(false)}>取消</Button>
+                        <Button onClick={handleSaveRule} disabled={ruleSaving}>{ruleSaving ? "保存中..." : "保存"}</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="text-center py-8 text-slate-500">加载中...</div>
+                ) : rules.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">暂无命名规则，点击上方按钮添加</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>规则名称</TableHead>
+                        <TableHead>命名模式</TableHead>
+                        <TableHead>描述</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead>创建时间</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rules.map((rule) => (
+                        <TableRow key={rule.id}>
+                          <TableCell className="font-medium">{rule.name}</TableCell>
+                          <TableCell className="font-mono text-sm">{rule.pattern}</TableCell>
+                          <TableCell className="text-slate-500">{rule.description || "-"}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Switch checked={rule.is_active} onCheckedChange={() => handleToggleRule(rule)} />
+                              <span className={`text-xs ${rule.is_active ? "text-green-600" : "text-slate-400"}`}>{rule.is_active ? "启用" : "禁用"}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-slate-500 text-sm">{formatDate(rule.created_at)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => openRuleModal(rule)}><Edit2 className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>编辑</TooltipContent></Tooltip>
+                              <Dialog open={deleteRuleId === rule.id} onOpenChange={(o) => !o && setDeleteRuleId(null)}>
+                                <DialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" onClick={() => setDeleteRuleId(rule.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader><DialogTitle>确认删除</DialogTitle><DialogDescription>确定要删除规则 &quot;{rule.name}&quot; 吗？此操作无法撤销。</DialogDescription></DialogHeader>
+                                  <DialogFooter>
+                                    <Button variant="outline" onClick={() => setDeleteRuleId(null)}>取消</Button>
+                                    <Button variant="destructive" onClick={handleDeleteRule} disabled={ruleDeleting}>{ruleDeleting ? "删除中..." : "删除"}</Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 店铺列表管理 */}
+          <TabsContent value="shops">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShoppingBag className="w-5 h-5" />
+                      店铺列表管理
+                    </CardTitle>
+                    <CardDescription>上传 Excel 文件批量导入店铺，支持单条添加</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    {shops.length > 0 && (
+                      <Button variant="outline" size="sm" onClick={handleClearAllShops} className="text-red-500 hover:text-red-600">
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        清空全部
+                      </Button>
+                    )}
+                    <Dialog open={shopModalOpen} onOpenChange={setShopModalOpen}>
+                      <DialogTrigger asChild>
+                        <Button onClick={() => openShopModal()}><Plus className="w-4 h-4 mr-2" />添加店铺</Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-lg">
+                        <DialogHeader>
+                          <DialogTitle>添加店铺</DialogTitle>
+                          <DialogDescription>上传 Excel 文件或手动输入店铺信息</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          {/* Excel 导入 */}
+                          <div className="space-y-2">
+                            <Label>Excel 文件导入</Label>
+                            <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-4 text-center">
+                              <Upload className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                              <p className="text-sm text-slate-500 mb-2">拖拽或点击上传 Excel 文件</p>
+                              <p className="text-xs text-slate-400 mb-2">Excel 需包含三列：站点、平台、店铺名</p>
+                              <input type="file" accept=".xlsx,.xls" onChange={handleShopFileChange} className="hidden" id="shop-file" />
+                              <label htmlFor="shop-file">
+                                <Button variant="outline" size="sm" asChild disabled={importingShops}>
+                                  <span>{importingShops ? "解析中..." : "选择文件"}</span>
+                                </Button>
+                              </label>
+                            </div>
+                            {shopPreview.length > 0 && (
+                              <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                                <p className="text-sm text-green-700 dark:text-green-300 mb-2">预览到 {shopPreview.length} 条数据：</p>
+                                <div className="max-h-32 overflow-y-auto text-xs space-y-1">
+                                  {shopPreview.slice(0, 5).map((s, i) => (
+                                    <p key={i} className="text-slate-600 dark:text-slate-400">{s.site} | {s.platform} | {s.name}</p>
+                                  ))}
+                                  {shopPreview.length > 5 && <p className="text-slate-400">...还有 {shopPreview.length - 5} 条</p>}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t" /></div><div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">或手动添加</span></div></div>
+                          {/* 手动添加 */}
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="shopSite">站点</Label>
+                              <Input id="shopSite" value={shopForm.site} onChange={(e) => setShopForm({ ...shopForm, site: e.target.value })} placeholder="如: 中国" />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="shopPlatform">平台</Label>
+                              <Input id="shopPlatform" value={shopForm.platform} onChange={(e) => setShopForm({ ...shopForm, platform: e.target.value })} placeholder="如: 淘宝" />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="shopName">店铺名</Label>
+                              <Input id="shopName" value={shopForm.name} onChange={(e) => setShopForm({ ...shopForm, name: e.target.value })} placeholder="如: 旗舰店" />
+                            </div>
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setShopModalOpen(false)}>取消</Button>
+                          <Button onClick={handleSaveShop} disabled={shopSaving}>{shopSaving ? "保存中..." : shopPreview.length > 0 ? `导入 ${shopPreview.length} 条` : "保存"}</Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="text-center py-8 text-slate-500">加载中...</div>
+                ) : shops.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">暂无店铺，点击上方按钮添加</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>店铺名</TableHead>
+                        <TableHead>站点</TableHead>
+                        <TableHead>平台</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead>创建时间</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {shops.map((shop) => (
+                        <TableRow key={shop.id}>
+                          <TableCell className="font-medium">{shop.name}</TableCell>
+                          <TableCell><Badge variant="outline">{shop.site}</Badge></TableCell>
+                          <TableCell><Badge variant="secondary">{shop.platform}</Badge></TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Switch checked={shop.is_active} onCheckedChange={() => handleToggleShop(shop)} />
+                              <span className={`text-xs ${shop.is_active ? "text-green-600" : "text-slate-400"}`}>{shop.is_active ? "启用" : "禁用"}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-slate-500 text-sm">{formatDate(shop.created_at)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => openShopModal(shop)}><Edit2 className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>编辑</TooltipContent></Tooltip>
+                              <Dialog open={deleteShopId === shop.id} onOpenChange={(o) => !o && setDeleteShopId(null)}>
+                                <DialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" onClick={() => setDeleteShopId(shop.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader><DialogTitle>确认删除</DialogTitle><DialogDescription>确定要删除店铺 &quot;{shop.name}&quot; 吗？</DialogDescription></DialogHeader>
+                                  <DialogFooter>
+                                    <Button variant="outline" onClick={() => setDeleteShopId(null)}>取消</Button>
+                                    <Button variant="destructive" onClick={handleDeleteShop} disabled={shopDeleting}>{shopDeleting ? "删除中..." : "删除"}</Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 自定义变量管理 */}
+          <TabsContent value="variables">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Variable className="w-5 h-5" />
+                      自定义变量
+                    </CardTitle>
+                    <CardDescription>添加自定义变量，可在命名规则中使用 {"{变量名}"} 引用</CardDescription>
+                  </div>
+                  <Dialog open={varModalOpen} onOpenChange={setVarModalOpen}>
+                    <DialogTrigger asChild>
+                      <Button onClick={() => openVarModal()}><Plus className="w-4 h-4 mr-2" />新增变量</Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>{editingVar ? "编辑变量" : "新增变量"}</DialogTitle>
+                        <DialogDescription>创建自定义变量，如 {"{部门}"}、{"{项目}"} 等</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="varName">变量名</Label>
+                          <Input id="varName" value={varForm.name} onChange={(e) => setVarForm({ ...varForm, name: e.target.value })} placeholder="{部门}" disabled={!!editingVar} />
+                          <p className="text-xs text-slate-500">必须以 {"{"} 开头，{"}"} 结尾</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="varValue">变量值</Label>
+                          <Input id="varValue" value={varForm.value} onChange={(e) => setVarForm({ ...varForm, value: e.target.value })} placeholder="如: 销售部" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="varDesc">描述说明</Label>
+                          <Textarea id="varDesc" value={varForm.description} onChange={(e) => setVarForm({ ...varForm, description: e.target.value })} placeholder="变量的用途..." rows={2} />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setVarModalOpen(false)}>取消</Button>
+                        <Button onClick={handleSaveVar} disabled={varSaving}>{varSaving ? "保存中..." : "保存"}</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="text-center py-8 text-slate-500">加载中...</div>
+                ) : variables.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">暂无自定义变量，点击上方按钮添加</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>变量名</TableHead>
+                        <TableHead>变量值</TableHead>
+                        <TableHead>描述</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {variables.map((v) => (
+                        <TableRow key={v.id}>
+                          <TableCell className="font-mono text-sm text-blue-600 dark:text-blue-400">{v.name}</TableCell>
+                          <TableCell className="font-medium">{v.value}</TableCell>
+                          <TableCell className="text-slate-500">{v.description || "-"}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Switch checked={v.is_active} onCheckedChange={() => handleToggleVar(v)} />
+                              <span className={`text-xs ${v.is_active ? "text-green-600" : "text-slate-400"}`}>{v.is_active ? "启用" : "禁用"}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => openVarModal(v)}><Edit2 className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>编辑</TooltipContent></Tooltip>
+                              <Dialog open={deleteVarId === v.id} onOpenChange={(o) => !o && setDeleteVarId(null)}>
+                                <DialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" onClick={() => setDeleteVarId(v.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader><DialogTitle>确认删除</DialogTitle><DialogDescription>确定要删除变量 {v.name} 吗？</DialogDescription></DialogHeader>
+                                  <DialogFooter>
+                                    <Button variant="outline" onClick={() => setDeleteVarId(null)}>取消</Button>
+                                    <Button variant="destructive" onClick={handleDeleteVar} disabled={varDeleting}>{varDeleting ? "删除中..." : "删除"}</Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         {/* 变量说明卡片 */}
         <Card className="mt-6 shadow-lg">
           <CardHeader>
-            <CardTitle className="text-lg">变量说明</CardTitle>
+            <CardTitle className="text-lg">可用变量说明</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400">
-                  {"{original}"}
-                </code>
-                <span className="text-slate-600 dark:text-slate-400">
-                  原始文件名（不含扩展名）
-                </span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400 text-xs">{"{original}"}</code>
+                <p className="text-slate-500">原始文件名（不含扩展名）</p>
               </div>
-              <div className="flex items-center gap-2">
-                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400">
-                  {"{date}"}
-                </code>
-                <span className="text-slate-600 dark:text-slate-400">
-                  当前日期 (YYYY-MM-DD)
-                </span>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400 text-xs">{"{date}"}</code>
+                <p className="text-slate-500">当前日期 (YYYY-MM-DD)</p>
               </div>
-              <div className="flex items-center gap-2">
-                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400">
-                  {"{time}"}
-                </code>
-                <span className="text-slate-600 dark:text-slate-400">
-                  当前时间 (HHMMSS)
-                </span>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400 text-xs">{"{time}"}</code>
+                <p className="text-slate-500">当前时间 (HHMMSS)</p>
               </div>
-              <div className="flex items-center gap-2">
-                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400">
-                  {"{datetime}"}
-                </code>
-                <span className="text-slate-600 dark:text-slate-400">
-                  日期时间 (完整格式)
-                </span>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400 text-xs">{"{datetime}"}</code>
+                <p className="text-slate-500">完整日期时间</p>
               </div>
-              <div className="flex items-center gap-2">
-                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400">
-                  {"{random}"}
-                </code>
-                <span className="text-slate-600 dark:text-slate-400">
-                  8位随机字符
-                </span>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400 text-xs">{"{random}"}</code>
+                <p className="text-slate-500">8位随机字符</p>
               </div>
-              <div className="flex items-center gap-2">
-                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400">
-                  {"{timestamp}"}
-                </code>
-                <span className="text-slate-600 dark:text-slate-400">
-                  时间戳（毫秒）
-                </span>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-blue-600 dark:text-blue-400 text-xs">{"{timestamp}"}</code>
+                <p className="text-slate-500">时间戳（毫秒）</p>
+              </div>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-green-600 dark:text-green-400 text-xs">{"{shop}"}</code>
+                <p className="text-slate-500">店铺名称（简写）</p>
+              </div>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-green-600 dark:text-green-400 text-xs">{"{shop_name}"}</code>
+                <p className="text-slate-500">店铺名称（完整）</p>
+              </div>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-green-600 dark:text-green-400 text-xs">{"{shop_site}"}</code>
+                <p className="text-slate-500">店铺所属站点</p>
+              </div>
+              <div className="space-y-1">
+                <code className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-green-600 dark:text-green-400 text-xs">{"{shop_platform}"}</code>
+                <p className="text-slate-500">店铺所属平台</p>
               </div>
             </div>
           </CardContent>

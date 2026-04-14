@@ -11,12 +11,16 @@ const storage = new S3Storage({
 });
 
 // 应用命名规则生成文件名
-function applyNamingPattern(pattern: string, originalName: string): string {
+async function applyNamingPattern(
+  pattern: string,
+  originalName: string,
+  shopId?: string
+): Promise<string> {
   const now = new Date();
   const ext = originalName.split(".").pop() || "";
   const nameWithoutExt = originalName.replace(/\.[^.]+$/, "");
 
-  // 支持的变量
+  // 默认变量
   const replacements: Record<string, string> = {
     "{original}": nameWithoutExt,
     "{date}": now.toISOString().split("T")[0],
@@ -26,9 +30,40 @@ function applyNamingPattern(pattern: string, originalName: string): string {
     "{timestamp}": now.getTime().toString(),
   };
 
+  // 从数据库获取店铺信息
+  if (shopId) {
+    const supabase = getSupabaseClient();
+    const { data: shop } = await supabase
+      .from("shops")
+      .select("name, site, platform")
+      .eq("id", shopId)
+      .maybeSingle();
+
+    if (shop) {
+      replacements["{shop_name}"] = shop.name;
+      replacements["{shop_site}"] = shop.site;
+      replacements["{shop_platform}"] = shop.platform;
+      replacements["{shop}"] = shop.name;
+    }
+  }
+
+  // 从数据库获取自定义变量
+  const supabase = getSupabaseClient();
+  const { data: variables } = await supabase
+    .from("custom_variables")
+    .select("name, value")
+    .eq("is_active", true);
+
+  if (variables) {
+    for (const v of variables) {
+      replacements[v.name] = v.value;
+    }
+  }
+
   let newName = pattern;
   for (const [key, value] of Object.entries(replacements)) {
-    newName = newName.replace(new RegExp(key.replace(/[{}]/g, "\\$&"), "g"), value);
+    const escapedKey = key.replace(/[{}]/g, "\\$&");
+    newName = newName.replace(new RegExp(escapedKey, "g"), value);
   }
 
   // 确保有扩展名
@@ -47,6 +82,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const ruleId = formData.get("ruleId") as string | null;
+    const shopId = formData.get("shopId") as string | null;
 
     if (!file) {
       return NextResponse.json({ error: "没有上传文件" }, { status: 400 });
@@ -72,7 +108,7 @@ export async function POST(request: NextRequest) {
         pattern = rule.pattern;
       }
     } else {
-      // 获取默认命名规则（按名称排序取第一个激活的）
+      // 获取默认命名规则
       const { data: rules, error } = await supabase
         .from("naming_rules")
         .select("id, pattern")
@@ -89,8 +125,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 应用命名规则
-    const newFileName = applyNamingPattern(pattern, file.name);
+    // 应用命名规则（包含店铺和自定义变量）
+    const newFileName = await applyNamingPattern(pattern, file.name, shopId || undefined);
 
     // 读取文件内容
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -109,6 +145,7 @@ export async function POST(request: NextRequest) {
       file_size: file.size.toString(),
       mime_type: file.type,
       rule_id: ruleId || null,
+      shop_id: shopId || null,
     });
 
     if (insertError) {
@@ -118,7 +155,7 @@ export async function POST(request: NextRequest) {
     // 生成访问链接
     const fileUrl = await storage.generatePresignedUrl({
       key: fileKey,
-      expireTime: 86400 * 7, // 7天有效期
+      expireTime: 86400 * 7,
     });
 
     return NextResponse.json({

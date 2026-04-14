@@ -34,11 +34,51 @@ export const uploadedFiles = pgTable(
 		file_size: varchar("file_size", { length: 50 }).notNull(),
 		mime_type: varchar("mime_type", { length: 100 }),
 		rule_id: varchar("rule_id", { length: 36 }),
+		shop_id: varchar("shop_id", { length: 36 }),
 		created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 	},
 	(table) => [
 		index("uploaded_files_stored_key_idx").on(table.stored_key),
 		index("uploaded_files_rule_id_idx").on(table.rule_id),
+		index("uploaded_files_shop_id_idx").on(table.shop_id),
 		index("uploaded_files_created_at_idx").on(table.created_at),
+	]
+);
+
+// 店铺列表表
+export const shops = pgTable(
+	"shops",
+	{
+		id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+		name: varchar("name", { length: 100 }).notNull(),
+		site: varchar("site", { length: 100 }).notNull(),
+		platform: varchar("platform", { length: 100 }).notNull(),
+		description: varchar("description", { length: 500 }),
+		is_active: boolean("is_active").default(true).notNull(),
+		created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [
+		index("shops_name_idx").on(table.name),
+		index("shops_site_idx").on(table.site),
+		index("shops_platform_idx").on(table.platform),
+		index("shops_is_active_idx").on(table.is_active),
+	]
+);
+
+// 自定义变量表
+export const customVariables = pgTable(
+	"custom_variables",
+	{
+		id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+		name: varchar("name", { length: 100 }).notNull().unique(),
+		value: varchar("value", { length: 500 }).notNull(),
+		description: varchar("description", { length: 500 }),
+		is_active: boolean("is_active").default(true).notNull(),
+		created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+		updated_at: timestamp("updated_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("custom_variables_name_idx").on(table.name),
+		index("custom_variables_is_active_idx").on(table.is_active),
 	]
 );

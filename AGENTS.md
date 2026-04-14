@@ -26,7 +26,10 @@
 │   │   │       └── page.tsx
 │   │   └── api/            # API 路由
 │   │       ├── upload/      # 文件上传接口
-│   │       └── rules/      # 命名规则 CRUD 接口
+│   │       ├── rules/      # 命名规则 CRUD 接口
+│   │       ├── shops/      # 店铺管理接口
+│   │       │   └── parse/  # Excel 解析接口
+│   │       └── variables/  # 自定义变量接口
 │   ├── components/ui/      # Shadcn UI 组件库
 │   ├── hooks/              # 自定义 Hooks
 │   ├── lib/                # 工具库
@@ -45,11 +48,21 @@
 - `/admin` - 管理后台（命名规则配置）
 
 ### API 接口
-- `POST /api/upload` - 文件上传（FormData，字段: file）
+- `POST /api/upload` - 文件上传（FormData，字段: file, ruleId?, shopId?）
 - `GET /api/rules` - 获取所有命名规则
 - `POST /api/rules` - 创建命名规则
 - `PUT /api/rules` - 更新命名规则
 - `DELETE /api/rules?id=xxx` - 删除命名规则
+- `GET /api/shops?active=true` - 获取店铺列表
+- `POST /api/shops` - 批量创建店铺
+- `POST /api/shops/parse` - 解析 Excel 文件（上传 Excel 导入店铺）
+- `PUT /api/shops` - 更新店铺
+- `DELETE /api/shops?id=xxx` - 删除店铺
+- `DELETE /api/shops?clearAll=true` - 清空所有店铺
+- `GET /api/variables` - 获取自定义变量
+- `POST /api/variables` - 创建自定义变量
+- `PUT /api/variables` - 更新自定义变量
+- `DELETE /api/variables?id=xxx` - 删除自定义变量
 
 ### 命名规则变量
 | 变量 | 说明 | 示例 |
@@ -60,10 +73,17 @@
 | `{datetime}` | 完整日期时间 | `20260414T151622` |
 | `{random}` | 8位随机字符 | `abc12345` |
 | `{timestamp}` | 时间戳（毫秒） | `1713078982000` |
+| `{shop}` | 店铺名称（简写） | `旗舰店` |
+| `{shop_name}` | 店铺名称（完整） | `官方旗舰店` |
+| `{shop_site}` | 店铺所属站点 | `中国` |
+| `{shop_platform}` | 店铺所属平台 | `淘宝` |
+| `{自定义变量}` | 自定义变量（在管理后台添加） | 如 `{部门}`、`{项目}` |
 
 ### 数据库表
 - `naming_rules` - 命名规则配置表
 - `uploaded_files` - 上传文件记录表
+- `shops` - 店铺列表表（支持从 Excel 导入）
+- `custom_variables` - 自定义变量表
 
 ### 技术集成
 - **数据库**: Supabase (PostgreSQL)
