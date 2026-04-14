@@ -29,7 +29,9 @@
 │   │       ├── rules/      # 命名规则 CRUD 接口
 │   │       ├── shops/      # 店铺管理接口
 │   │       │   └── parse/  # Excel 解析接口
-│   │       └── variables/  # 自定义变量接口
+│   │       ├── variables/  # 自定义变量接口
+│   │       └── files/      # 上传记录接口
+│   │           └── download/  # 文件下载接口
 │   ├── components/ui/      # Shadcn UI 组件库
 │   ├── hooks/              # 自定义 Hooks
 │   ├── lib/                # 工具库
@@ -63,6 +65,9 @@
 - `POST /api/variables` - 创建自定义变量
 - `PUT /api/variables` - 更新自定义变量
 - `DELETE /api/variables?id=xxx` - 删除自定义变量
+- `GET /api/files` - 获取上传记录列表
+- `DELETE /api/files?id=xxx` - 删除上传记录
+- `GET /api/files/download?key=xxx` - 下载/预览文件
 
 ### 命名规则变量
 | 变量 | 说明 | 示例 |

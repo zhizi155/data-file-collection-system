@@ -15,6 +15,11 @@ import {
   Upload,
   ShoppingBag,
   Variable,
+  File,
+  Download,
+  Link as LinkIcon,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -77,14 +82,34 @@ interface CustomVariable {
   updated_at: string | null;
 }
 
+interface UploadedFile {
+  id: string;
+  original_name: string;
+  stored_key: string;
+  file_size: string;
+  mime_type: string | null;
+  rule_id: string | null;
+  shop_id: string | null;
+  created_at: string;
+  shops?: {
+    name: string;
+    site: string;
+    platform: string;
+  } | null;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [rules, setRules] = useState<NamingRule[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
   const [variables, setVariables] = useState<CustomVariable[]>([]);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filesLoading, setFilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("rules");
+  const [activeTab, setActiveTab] = useState("files");
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [fileFilterShop, setFileFilterShop] = useState<string>("all");
 
   // 规则模态框状态
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
@@ -147,6 +172,110 @@ export default function AdminPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // 加载文件记录
+  const loadFiles = useCallback(async () => {
+    setFilesLoading(true);
+    try {
+      const url = fileFilterShop === "all" ? "/api/files" : `/api/files?shopId=${fileFilterShop}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success) {
+        setFiles(data.data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载失败");
+    } finally {
+      setFilesLoading(false);
+    }
+  }, [fileFilterShop]);
+
+  useEffect(() => {
+    if (activeTab === "files") {
+      loadFiles();
+    }
+  }, [activeTab, loadFiles]);
+
+  // 文件选择操作
+  const toggleFileSelection = (fileId: string) => {
+    const newSelected = new Set(selectedFiles);
+    if (newSelected.has(fileId)) {
+      newSelected.delete(fileId);
+    } else {
+      newSelected.add(fileId);
+    }
+    setSelectedFiles(newSelected);
+  };
+
+  const toggleAllFiles = () => {
+    if (selectedFiles.size === files.length) {
+      setSelectedFiles(new Set());
+    } else {
+      setSelectedFiles(new Set(files.map((f) => f.id)));
+    }
+  };
+
+  // 导出选中文件
+  const exportSelectedFiles = async () => {
+    if (selectedFiles.size === 0) {
+      setError("请先选择要导出的文件");
+      return;
+    }
+
+    const selectedFileData = files.filter((f) => selectedFiles.has(f.id));
+
+    // 生成 CSV 内容
+    const headers = ["序号", "原始文件名", "保存文件名", "店铺", "站点", "平台", "文件大小", "上传时间"];
+    const rows = selectedFileData.map((f, idx) => [
+      idx + 1,
+      f.original_name,
+      f.stored_key.split("/").pop() || f.stored_key,
+      f.shops?.name || "-",
+      f.shops?.site || "-",
+      f.shops?.platform || "-",
+      formatFileSize(parseInt(f.file_size)),
+      formatDate(f.created_at),
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) =>
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+      ),
+    ].join("\n");
+
+    // 下载 CSV
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `上传记录_${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // 删除文件记录
+  const handleDeleteFileRecord = async (fileId: string) => {
+    if (!confirm("确定要删除这条记录吗？")) return;
+    try {
+      const res = await fetch(`/api/files?id=${fileId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        loadFiles();
+        setSelectedFiles((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(fileId);
+          return newSet;
+        });
+      } else {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    }
+  };
 
   // ========== 命名规则操作 ==========
   const openRuleModal = (rule?: NamingRule) => {
@@ -425,6 +554,12 @@ export default function AdminPage() {
     });
   };
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
       {/* 头部 */}
@@ -460,7 +595,12 @@ export default function AdminPage() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 mb-6">
+          <TabsList className="grid w-full grid-cols-4 mb-6">
+            <TabsTrigger value="files" className="gap-2">
+              <File className="w-4 h-4" />
+              上传记录
+              {files.length > 0 && <Badge variant="secondary" className="ml-1">{files.length}</Badge>}
+            </TabsTrigger>
             <TabsTrigger value="rules" className="gap-2">
               <FileText className="w-4 h-4" />
               命名规则
@@ -476,6 +616,149 @@ export default function AdminPage() {
               {variables.length > 0 && <Badge variant="secondary" className="ml-1">{variables.length}</Badge>}
             </TabsTrigger>
           </TabsList>
+
+          {/* 上传记录 */}
+          <TabsContent value="files">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <File className="w-5 h-5" />
+                      上传记录
+                    </CardTitle>
+                    <CardDescription>查看所有上传文件记录，支持批量导出</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={fileFilterShop}
+                      onChange={(e) => setFileFilterShop(e.target.value)}
+                      className="px-3 py-2 border rounded-md text-sm bg-background"
+                    >
+                      <option value="all">全部店铺</option>
+                      {shops.map((shop) => (
+                        <option key={shop.id} value={shop.id}>
+                          {shop.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={exportSelectedFiles}
+                      disabled={selectedFiles.size === 0}
+                      className="gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      导出选中 ({selectedFiles.size})
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {filesLoading ? (
+                  <div className="text-center py-8 text-slate-500">加载中...</div>
+                ) : files.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">暂无上传记录</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-10">
+                            <button
+                              onClick={toggleAllFiles}
+                              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+                            >
+                              {selectedFiles.size === files.length && files.length > 0 ? (
+                                <CheckSquare className="w-4 h-4 text-blue-500" />
+                              ) : (
+                                <Square className="w-4 h-4 text-slate-400" />
+                              )}
+                            </button>
+                          </TableHead>
+                          <TableHead>原始文件名</TableHead>
+                          <TableHead>保存文件名</TableHead>
+                          <TableHead>店铺</TableHead>
+                          <TableHead>文件大小</TableHead>
+                          <TableHead>上传时间</TableHead>
+                          <TableHead className="text-right">操作</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {files.map((file) => (
+                          <TableRow key={file.id} className={selectedFiles.has(file.id) ? "bg-blue-50 dark:bg-blue-950" : ""}>
+                            <TableCell>
+                              <button
+                                onClick={() => toggleFileSelection(file.id)}
+                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+                              >
+                                {selectedFiles.has(file.id) ? (
+                                  <CheckSquare className="w-4 h-4 text-blue-500" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-slate-400" />
+                                )}
+                              </button>
+                            </TableCell>
+                            <TableCell className="font-medium max-w-[200px] truncate" title={file.original_name}>
+                              {file.original_name}
+                            </TableCell>
+                            <TableCell className="text-sm text-slate-500 max-w-[200px] truncate" title={file.stored_key}>
+                              {file.stored_key.split("/").pop()}
+                            </TableCell>
+                            <TableCell>
+                              {file.shops ? (
+                                <div className="flex flex-col gap-1">
+                                  <Badge variant="outline">{file.shops.name}</Badge>
+                                  <span className="text-xs text-slate-400">
+                                    {file.shops.site} / {file.shops.platform}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell>{formatFileSize(parseInt(file.file_size))}</TableCell>
+                            <TableCell className="text-slate-500 text-sm">{formatDate(file.created_at)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => window.open(`/api/files/download?key=${encodeURIComponent(file.stored_key)}`, "_blank")}
+                                      className="text-blue-500"
+                                    >
+                                      <LinkIcon className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>查看文件</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleDeleteFileRecord(file.id)}
+                                      className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>删除记录</TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* 命名规则管理 */}
           <TabsContent value="rules">
