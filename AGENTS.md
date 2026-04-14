@@ -26,6 +26,9 @@
 │   │   │       └── page.tsx
 │   │   └── api/            # API 路由
 │   │       ├── upload/      # 文件上传接口
+│   │       │   ├── chunk/   # 分片上传接口（支持大文件）
+│   │       │   ├── confirm/ # 上传确认接口
+│   │       │   └── presign/ # 预签名URL生成接口
 │   │       ├── rules/      # 命名规则 CRUD 接口
 │   │       ├── shops/      # 店铺管理接口
 │   │       │   └── parse/  # Excel 解析接口
@@ -89,6 +92,15 @@
 - `uploaded_files` - 上传文件记录表
 - `shops` - 店铺列表表（支持从 Excel 导入）
 - `custom_variables` - 自定义变量表
+
+### 大文件处理机制
+- **阈值**: 文件 > 50MB 被视为大文件
+- **警告提示**: 超过阈值的文件会显示警告，建议压缩后再上传
+- **分片上传**: 大文件使用分片上传（5MB/片），支持进度显示
+- **API端点**:
+  - `POST /api/upload/presign` - 生成预签名上传URL
+  - `POST /api/upload/chunk` - 分片上传
+  - `POST /api/upload/confirm` - 确认上传完成
 
 ### 技术集成
 - **数据库**: Supabase (PostgreSQL)

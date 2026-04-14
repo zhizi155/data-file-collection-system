@@ -1,0 +1,79 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { S3Storage } from "coze-coding-dev-sdk";
+
+const storage = new S3Storage({
+  endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
+  accessKey: "",
+  secretKey: "",
+  bucketName: process.env.COZE_BUCKET_NAME,
+  region: "cn-beijing",
+});
+
+// 确认上传完成并记录到数据库
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { objectKey, originalName, fileSize, shopId, exportType, ruleId } = body;
+
+    if (!objectKey || !originalName || !fileSize) {
+      return NextResponse.json(
+        { error: "缺少必要参数" },
+        { status: 400 }
+      );
+    }
+
+    // 验证文件是否存在
+    const exists = await storage.fileExists({ fileKey: objectKey });
+    if (!exists) {
+      return NextResponse.json(
+        { error: "文件上传失败或文件不存在" },
+        { status: 400 }
+      );
+    }
+
+    // 获取文件信息
+    const newFileName = objectKey.split("/").pop() || originalName;
+
+    // 记录到数据库
+    const supabase = getSupabaseClient();
+    const { error: insertError } = await supabase.from("uploaded_files").insert({
+      original_name: originalName,
+      stored_key: objectKey,
+      file_size: fileSize.toString(),
+      mime_type: "application/octet-stream",
+      rule_id: ruleId || null,
+      shop_id: shopId || null,
+      export_type: exportType || null,
+    });
+
+    if (insertError) {
+      console.error("记录上传文件失败:", insertError);
+      return NextResponse.json(
+        { error: "记录文件信息失败" },
+        { status: 500 }
+      );
+    }
+
+    // 生成访问链接
+    const fileUrl = await storage.generatePresignedUrl({
+      key: objectKey,
+      expireTime: 86400 * 7,
+    });
+
+    return NextResponse.json({
+      success: true,
+      originalName: originalName,
+      newName: newFileName,
+      fileKey: objectKey,
+      fileUrl: fileUrl,
+      fileSize: fileSize,
+    });
+  } catch (error) {
+    console.error("确认上传失败:", error);
+    return NextResponse.json(
+      { error: "确认上传失败" },
+      { status: 500 }
+    );
+  }
+}

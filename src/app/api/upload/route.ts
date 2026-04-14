@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { S3Storage } from "coze-coding-dev-sdk";
+import { Readable } from "stream";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -37,7 +38,7 @@ async function applyNamingPattern(
     const supabase = getSupabaseClient();
     const { data: shop } = await supabase
       .from("shops")
-      .select("name, site, platform")
+      .select("name, site, platform, export_type")
       .eq("id", shopId)
       .maybeSingle();
 
@@ -95,6 +96,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "没有上传文件" }, { status: 400 });
     }
 
+    const fileSizeMB = file.size / (1024 * 1024);
+    console.log(`开始上传文件: ${file.name}, 大小: ${fileSizeMB.toFixed(2)} MB`);
+
     // 获取命名规则
     const supabase = getSupabaseClient();
     let pattern = "{original}";
@@ -135,15 +139,32 @@ export async function POST(request: NextRequest) {
     // 应用命名规则（包含店铺和自定义变量）
     const newFileName = await applyNamingPattern(pattern, file.name, shopId || undefined, exportType || undefined);
 
-    // 读取文件内容
-    const buffer = Buffer.from(await file.arrayBuffer());
+    let fileKey: string;
 
-    // 上传到对象存储
-    const fileKey = await storage.uploadFile({
-      fileContent: buffer,
-      fileName: `uploads/${newFileName}`,
-      contentType: file.type || "application/octet-stream",
-    });
+    // 对于大于10MB的文件使用流式上传，避免内存问题
+    if (file.size > 10 * 1024 * 1024) {
+      console.log(`文件大于10MB，使用流式上传`);
+      // 将 File 转为 Node.js Readable Stream
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const readable = Readable.from(buffer);
+
+      fileKey = await storage.streamUploadFile({
+        stream: readable,
+        fileName: `uploads/${newFileName}`,
+        contentType: file.type || "application/octet-stream",
+      });
+    } else {
+      // 小文件直接上传
+      const buffer = Buffer.from(await file.arrayBuffer());
+      fileKey = await storage.uploadFile({
+        fileContent: buffer,
+        fileName: `uploads/${newFileName}`,
+        contentType: file.type || "application/octet-stream",
+      });
+    }
+
+    console.log(`文件上传成功: ${fileKey}`);
 
     // 记录到数据库
     const { error: insertError } = await supabase.from("uploaded_files").insert({

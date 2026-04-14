@@ -24,16 +24,24 @@ interface UploadResult {
   fileSize: number;
 }
 
+// 大文件阈值（50MB）
+const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024;
+
+// 推荐的压缩工具
+const COMPRESSION_TIPS = "建议将文件压缩后再上传。可使用 7-Zip、WinRAR 等工具压缩，或使用 ZIP 格式打包。";
+
 export default function UploadPage() {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shops, setShops] = useState<Shop[]>([]);
   const [selectedShop, setSelectedShop] = useState<string>("");
   const [selectedExportType, setSelectedExportType] = useState<string>("");
   const [shopLoading, setShopLoading] = useState(true);
+  const [largeFileWarning, setLargeFileWarning] = useState<string | null>(null);
 
   // 加载店铺列表
   const loadShops = useCallback(async () => {
@@ -84,8 +92,15 @@ export default function UploadPage() {
       setDragActive(false);
       setError(null);
       setResult(null);
+      setLargeFileWarning(null);
       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-        setFile(e.dataTransfer.files[0]);
+        const selectedFile = e.dataTransfer.files[0];
+        setFile(selectedFile);
+        
+        // 检查文件大小
+        if (selectedFile.size > LARGE_FILE_THRESHOLD) {
+          setLargeFileWarning(`文件大小为 ${formatFileSize(selectedFile.size)}，超过推荐大小。${COMPRESSION_TIPS}`);
+        }
       }
     },
     []
@@ -94,8 +109,15 @@ export default function UploadPage() {
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
     setResult(null);
+    setLargeFileWarning(null);
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      const selectedFile = e.target.files[0];
+      setFile(selectedFile);
+      
+      // 检查文件大小
+      if (selectedFile.size > LARGE_FILE_THRESHOLD) {
+        setLargeFileWarning(`文件大小为 ${formatFileSize(selectedFile.size)}，超过推荐大小。${COMPRESSION_TIPS}`);
+      }
     }
   }, []);
 
@@ -103,32 +125,156 @@ export default function UploadPage() {
     if (!file || !selectedShop) return;
     // 如果店铺有导出类型，则必须选择
     if (exportTypeOptions.length > 0 && !selectedExportType) return;
-    
+
     setUploading(true);
     setError(null);
     setResult(null);
+    setUploadProgress(0);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("shopId", selectedShop);
-      if (selectedExportType) {
-        formData.append("exportType", selectedExportType);
-      }
-
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        setError(data.error || "上传失败");
+      const isLargeFile = file.size > LARGE_FILE_THRESHOLD;
+      
+      if (isLargeFile) {
+        // 大文件：使用分片上传
+        await uploadLargeFile();
       } else {
-        setResult(data);
+        // 普通文件：直接上传
+        await uploadNormalFile();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "上传失败");
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
+  };
+
+  // 普通文件上传
+  const uploadNormalFile = async () => {
+    if (!file) return;
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("shopId", selectedShop);
+    if (selectedExportType) {
+      formData.append("exportType", selectedExportType);
+    }
+
+    const res = await fetch("/api/upload", { method: "POST", body: formData });
+
+    // 检查Content-Type是否为JSON
+    const contentType = res.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || "上传失败");
+      } else {
+        setResult(data);
+      }
+    } else {
+      // 非JSON响应（可能是代理返回的错误）
+      const text = await res.text();
+      if (res.status === 413) {
+        setError("文件过大，超过了服务器允许的最大限制。建议压缩文件后再上传。");
+      } else {
+        setError(`上传失败 (${res.status}): ${text.substring(0, 100)}`);
+      }
+    }
+  };
+
+  // 大文件分片上传
+  const uploadLargeFile = async () => {
+    if (!file) return;
+    
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    let uploadedChunks = 0;
+
+    // 1. 获取预签名上传URL
+    setUploadProgress(5);
+    const presignRes = await fetch("/api/upload/presign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: file.name,
+        fileSize: file.size,
+        shopId: selectedShop,
+        exportType: selectedExportType || undefined,
+        contentType: file.type || "application/octet-stream",
+      }),
+    });
+
+    const presignData = await presignRes.json();
+    if (!presignRes.ok || !presignData.success) {
+      throw new Error(presignData.error || "获取上传链接失败");
+    }
+
+    const { objectKey } = presignData;
+
+    // 2. 分片上传文件
+    // 注意：这里我们仍然使用 FormData 方式，因为预签名URL是用于直接上传到S3的
+    // 如果S3不支持直接PUT，则回退到普通上传
+    try {
+      // 尝试使用 fetch 直接上传到预签名URL
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        const chunkFormData = new FormData();
+        chunkFormData.append("file", chunk);
+        chunkFormData.append("shopId", selectedShop);
+        if (selectedExportType) {
+          chunkFormData.append("exportType", selectedExportType);
+        }
+        chunkFormData.append("chunkIndex", i.toString());
+        chunkFormData.append("totalChunks", totalChunks.toString());
+        chunkFormData.append("objectKey", objectKey);
+        chunkFormData.append("fileName", file.name);
+        chunkFormData.append("fileSize", file.size.toString());
+
+        const chunkRes = await fetch("/api/upload/chunk", {
+          method: "POST",
+          body: chunkFormData,
+        });
+
+        if (!chunkRes.ok) {
+          const chunkData = await chunkRes.json().catch(() => ({}));
+          throw new Error(chunkData.error || `分片 ${i + 1} 上传失败`);
+        }
+
+        uploadedChunks++;
+        const progress = Math.round((uploadedChunks / totalChunks) * 80) + 10;
+        setUploadProgress(progress);
+      }
+    } catch (chunkError) {
+      // 如果分片上传失败，回退到普通上传
+      console.warn("分片上传失败，尝试普通上传:", chunkError);
+      await uploadNormalFile();
+      return;
+    }
+
+    // 3. 确认上传完成
+    setUploadProgress(95);
+    const confirmRes = await fetch("/api/upload/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        objectKey,
+        originalName: file.name,
+        fileSize: file.size,
+        shopId: selectedShop,
+        exportType: selectedExportType || undefined,
+      }),
+    });
+
+    const confirmData = await confirmRes.json();
+    if (!confirmRes.ok || !confirmData.success) {
+      throw new Error(confirmData.error || "确认上传失败");
+    }
+
+    setResult(confirmData);
+    setUploadProgress(100);
   };
 
   const handleReset = () => {
@@ -214,7 +360,7 @@ export default function UploadPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-slate-500">
-                  店铺 "{currentShop?.name}" 的导出类型：{currentShop?.export_type}
+                  店铺「{currentShop?.name}」的导出类型：{currentShop?.export_type}
                 </p>
               </div>
             )}
@@ -248,17 +394,45 @@ export default function UploadPage() {
 
             {/* 已选择文件 */}
             {file && !result && (
-              <div className="flex items-center justify-between p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <File className="w-8 h-8 text-slate-500" />
-                  <div>
-                    <p className="font-medium text-slate-800 dark:text-slate-200">{file.name}</p>
-                    <p className="text-sm text-slate-500">{formatFileSize(file.size)}</p>
+              <div className="flex flex-col gap-2 p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <File className="w-8 h-8 text-slate-500" />
+                    <div>
+                      <p className="font-medium text-slate-800 dark:text-slate-200">{file.name}</p>
+                      <p className="text-sm text-slate-500">{formatFileSize(file.size)}</p>
+                    </div>
                   </div>
+                  <Button variant="ghost" size="icon" onClick={handleReset} className="text-slate-500 hover:text-slate-700">
+                    <X className="w-5 h-5" />
+                  </Button>
                 </div>
-                <Button variant="ghost" size="icon" onClick={handleReset} className="text-slate-500 hover:text-slate-700">
-                  <X className="w-5 h-5" />
-                </Button>
+                
+                {/* 大文件警告 */}
+                {largeFileWarning && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-sm text-amber-700 dark:text-amber-300">{largeFileWarning}</p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* 上传进度 */}
+                {uploading && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600 dark:text-slate-400">上传进度</span>
+                      <span className="text-slate-600 dark:text-slate-400">{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -307,7 +481,19 @@ export default function UploadPage() {
                 className="w-full" 
                 size="lg"
               >
-                {uploading ? "上传中..." : "开始上传"}
+                {uploading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="animate-spin">⏳</span>
+                    上传中 {uploadProgress}%
+                  </span>
+                ) : file.size > LARGE_FILE_THRESHOLD ? (
+                  <span className="flex items-center gap-2">
+                    <span>⚠️</span>
+                    上传大文件（可能需要较长时间）
+                  </span>
+                ) : (
+                  "开始上传"
+                )}
               </Button>
             )}
           </CardContent>

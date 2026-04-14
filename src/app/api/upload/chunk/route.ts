@@ -1,0 +1,89 @@
+import { NextRequest, NextResponse } from "next/server";
+import { S3Storage } from "coze-coding-dev-sdk";
+
+const storage = new S3Storage({
+  endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
+  accessKey: "",
+  secretKey: "",
+  bucketName: process.env.COZE_BUCKET_NAME,
+  region: "cn-beijing",
+});
+
+// 内存中存储分片（用于小规模并发）
+// 注意：生产环境应使用 Redis 或其他分布式存储
+const chunkStore = new Map<string, { chunks: Buffer[]; totalChunks: number; metadata: Record<string, string> }>();
+
+// 分片上传接口
+export async function POST(request: NextRequest) {
+  try {
+    const formData = await request.formData();
+    const chunk = formData.get("file") as File | null;
+    const chunkIndex = parseInt(formData.get("chunkIndex") as string, 10);
+    const totalChunks = parseInt(formData.get("totalChunks") as string, 10);
+    const objectKey = formData.get("objectKey") as string;
+    const fileName = formData.get("fileName") as string;
+    const fileSize = parseInt(formData.get("fileSize") as string, 10);
+    const shopId = formData.get("shopId") as string | null;
+    const exportType = formData.get("exportType") as string | null;
+
+    if (!chunk || isNaN(chunkIndex) || isNaN(totalChunks) || !objectKey) {
+      return NextResponse.json(
+        { error: "缺少必要参数" },
+        { status: 400 }
+      );
+    }
+
+    // 保存分片到内存
+    const chunkKey = `${objectKey}`;
+    if (!chunkStore.has(chunkKey)) {
+      chunkStore.set(chunkKey, {
+        chunks: [],
+        totalChunks,
+        metadata: {
+          fileName,
+          fileSize: fileSize.toString(),
+          shopId: shopId || "",
+          exportType: exportType || "",
+        },
+      });
+    }
+
+    const store = chunkStore.get(chunkKey)!;
+    store.chunks[chunkIndex] = Buffer.from(await chunk.arrayBuffer());
+
+    // 检查是否所有分片都已上传
+    const uploadedCount = store.chunks.filter(Boolean).length;
+    if (uploadedCount === totalChunks) {
+      // 合并分片并上传
+      const buffer = Buffer.concat(store.chunks);
+      
+      const fileKey = await storage.uploadFile({
+        fileContent: buffer,
+        fileName: objectKey,
+        contentType: chunk.type || "application/octet-stream",
+      });
+
+      // 清理内存
+      chunkStore.delete(chunkKey);
+
+      return NextResponse.json({
+        success: true,
+        fileKey,
+        message: "所有分片上传完成",
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      uploadedChunks: uploadedCount,
+      totalChunks,
+      message: `分片 ${chunkIndex + 1}/${totalChunks} 上传成功`,
+    });
+  } catch (error) {
+    console.error("分片上传失败:", error);
+    return NextResponse.json(
+      { error: "分片上传失败" },
+      { status: 500 }
+    );
+  }
+}

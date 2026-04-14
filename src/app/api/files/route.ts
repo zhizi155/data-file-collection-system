@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     // 获取店铺信息
     const shopIds = [...new Set(data?.map((f) => f.shop_id).filter(Boolean) || [])];
-    let shopsMap: Record<string, { name: string; site: string; platform: string }> = {};
+    const shopsMap: Record<string, { name: string; site: string; platform: string }> = {};
 
     if (shopIds.length > 0) {
       const { data: shopsData } = await supabase
