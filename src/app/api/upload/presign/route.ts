@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -9,6 +11,18 @@ const storage = new S3Storage({
   bucketName: process.env.COZE_BUCKET_NAME,
   region: "cn-beijing",
 });
+
+// 创建S3客户端用于生成PUT预签名URL
+function createS3Client() {
+  return new S3Client({
+    region: "cn-beijing",
+    endpoint: process.env.COZE_BUCKET_ENDPOINT_URL,
+    credentials: {
+      accessKeyId: "",
+      secretAccessKey: "",
+    },
+  });
+}
 
 // 获取命名后的文件名
 async function getNamingPattern(
@@ -106,13 +120,22 @@ export async function POST(request: NextRequest) {
     const newFileName = await getNamingPattern(fileName, shopId, exportType);
     const objectKey = `uploads/${newFileName}`;
 
-    // 生成预签名URL用于上传
-    const presignedUrl = await storage.generatePresignedUrl({
-      key: objectKey,
-      expireTime: 3600, // 1小时有效期
+    // 使用AWS SDK生成PUT预签名URL
+    const s3Client = createS3Client();
+    const contentType = body.contentType || "application/octet-stream";
+    
+    const command = new PutObjectCommand({
+      Bucket: process.env.COZE_BUCKET_NAME,
+      Key: objectKey,
+      ContentType: contentType,
+    });
+    
+    // 生成PUT预签名URL（用于直接上传到S3）
+    const uploadUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: 3600, // 1小时
     });
 
-    // 生成下载用的预签名URL
+    // 生成下载用的预签名URL（使用SDK方法）
     const downloadUrl = await storage.generatePresignedUrl({
       key: objectKey,
       expireTime: 86400 * 7,
@@ -120,11 +143,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      uploadUrl: presignedUrl,
+      uploadUrl: uploadUrl,
       downloadUrl: downloadUrl,
       objectKey: objectKey,
       newFileName: newFileName,
-      // contentType is intentionally excluded as it's only used for documentation
     });
   } catch (error) {
     console.error("生成预签名URL失败:", error);

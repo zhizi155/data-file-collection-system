@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Storage } from "coze-coding-dev-sdk";
+import { Readable } from "stream";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -11,57 +12,72 @@ const storage = new S3Storage({
 
 // 内存中存储分片（用于小规模并发）
 // 注意：生产环境应使用 Redis 或其他分布式存储
-const chunkStore = new Map<string, { chunks: Buffer[]; totalChunks: number; metadata: Record<string, string> }>();
+const chunkStore = new Map<string, { chunks: Buffer[]; totalChunks: number; uploaded: Set<number> }>();
 
 // 分片上传接口
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const chunk = formData.get("file") as File | null;
+    const chunkData = formData.get("file");
     const chunkIndex = parseInt(formData.get("chunkIndex") as string, 10);
     const totalChunks = parseInt(formData.get("totalChunks") as string, 10);
     const objectKey = formData.get("objectKey") as string;
     const fileName = formData.get("fileName") as string;
     const fileSize = parseInt(formData.get("fileSize") as string, 10);
-    const shopId = formData.get("shopId") as string | null;
-    const exportType = formData.get("exportType") as string | null;
 
-    if (!chunk || isNaN(chunkIndex) || isNaN(totalChunks) || !objectKey) {
+    if (!chunkData || isNaN(chunkIndex) || isNaN(totalChunks) || !objectKey) {
       return NextResponse.json(
         { error: "缺少必要参数" },
         { status: 400 }
       );
     }
 
+    // 将分片数据转为 Buffer
+    let buffer: Buffer;
+    if (typeof chunkData === "object" && chunkData !== null && "arrayBuffer" in chunkData) {
+      // File 对象
+      buffer = Buffer.from(await (chunkData as File).arrayBuffer());
+    } else if (Buffer.isBuffer(chunkData)) {
+      buffer = chunkData;
+    } else if (typeof chunkData === "string") {
+      buffer = Buffer.from(chunkData);
+    } else {
+      buffer = Buffer.from(await (chunkData as Blob).arrayBuffer());
+    }
+
     // 保存分片到内存
-    const chunkKey = `${objectKey}`;
+    const chunkKey = `${objectKey}-${fileSize}`;
     if (!chunkStore.has(chunkKey)) {
       chunkStore.set(chunkKey, {
-        chunks: [],
+        chunks: new Array(totalChunks),
         totalChunks,
-        metadata: {
-          fileName,
-          fileSize: fileSize.toString(),
-          shopId: shopId || "",
-          exportType: exportType || "",
-        },
+        uploaded: new Set(),
       });
     }
 
     const store = chunkStore.get(chunkKey)!;
-    store.chunks[chunkIndex] = Buffer.from(await chunk.arrayBuffer());
+    store.chunks[chunkIndex] = buffer;
+    store.uploaded.add(chunkIndex);
+
+    console.log(`收到分片 ${chunkIndex + 1}/${totalChunks}，文件: ${fileName}`);
 
     // 检查是否所有分片都已上传
-    const uploadedCount = store.chunks.filter(Boolean).length;
-    if (uploadedCount === totalChunks) {
-      // 合并分片并上传
-      const buffer = Buffer.concat(store.chunks);
+    if (store.uploaded.size === totalChunks) {
+      console.log(`所有分片已收到，开始合并上传: ${fileName}`);
       
-      const fileKey = await storage.uploadFile({
-        fileContent: buffer,
+      // 合并分片
+      const mergedBuffer = Buffer.concat(store.chunks);
+      console.log(`合并完成，大小: ${mergedBuffer.length} bytes`);
+      
+      // 流式上传到S3
+      const readable = Readable.from(mergedBuffer);
+      const fileKey = await storage.streamUploadFile({
+        stream: readable,
         fileName: objectKey,
-        contentType: chunk.type || "application/octet-stream",
+        contentType: "application/octet-stream",
       });
+
+      console.log(`文件上传成功: ${fileKey}`);
 
       // 清理内存
       chunkStore.delete(chunkKey);
@@ -75,7 +91,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      uploadedChunks: uploadedCount,
+      uploadedChunks: store.uploaded.size,
       totalChunks,
       message: `分片 ${chunkIndex + 1}/${totalChunks} 上传成功`,
     });

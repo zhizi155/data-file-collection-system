@@ -24,8 +24,9 @@ interface UploadResult {
   fileSize: number;
 }
 
-// 大文件阈值（50MB）
-const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024;
+// 大文件阈值（使用分片上传的文件大小阈值）
+// 网关限制约10MB，因此超过此值就使用分片上传
+const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
 
 // 推荐的压缩工具
 const COMPRESSION_TIPS = "建议将文件压缩后再上传。可使用 7-Zip、WinRAR 等工具压缩，或使用 ZIP 格式打包。";
@@ -182,11 +183,15 @@ export default function UploadPage() {
     }
   };
 
-  // 大文件上传 - 使用预签名URL直接上传到S3
+  // 大文件分片上传 - 使用小分片通过网关
   const uploadLargeFile = async () => {
     if (!file) return;
+    
+    // 使用1MB分片，确保能通过网关（约10MB限制）
+    const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB per chunk
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-    // 1. 获取预签名上传URL
+    // 1. 获取对象key
     setUploadProgress(5);
     const presignRes = await fetch("/api/upload/presign", {
       method: "POST",
@@ -205,42 +210,37 @@ export default function UploadPage() {
       throw new Error(presignData.error || "获取上传链接失败");
     }
 
-    const { uploadUrl, objectKey } = presignData;
+    const { objectKey } = presignData;
+    console.log(`开始分片上传: ${file.name}, 大小: ${file.size}, 分片数: ${totalChunks}`);
 
-    // 2. 直接使用预签名URL上传整个文件到S3
-    // 这样可以绕过API网关的大小限制
-    setUploadProgress(10);
-    
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const progress = Math.round((e.loaded / e.total) * 80) + 10;
-            setUploadProgress(progress);
-          }
-        };
-        
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            reject(new Error(`上传失败: ${xhr.status}`));
-          }
-        };
-        
-        xhr.onerror = () => reject(new Error("网络错误"));
-        
-        xhr.open("PUT", uploadUrl);
-        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-        xhr.send(file);
+    // 2. 分片上传
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+
+      const chunkFormData = new FormData();
+      chunkFormData.append("file", chunk);
+      chunkFormData.append("chunkIndex", i.toString());
+      chunkFormData.append("totalChunks", totalChunks.toString());
+      chunkFormData.append("objectKey", objectKey);
+      chunkFormData.append("fileName", file.name);
+      chunkFormData.append("fileSize", file.size.toString());
+
+      const chunkRes = await fetch("/api/upload/chunk", {
+        method: "POST",
+        body: chunkFormData,
       });
-    } catch (uploadError) {
-      // 如果预签名URL上传失败，尝试普通上传
-      console.warn("预签名URL上传失败，尝试普通上传:", uploadError);
-      await uploadNormalFile();
-      return;
+
+      const chunkData = await chunkRes.json().catch(() => ({}));
+      
+      if (!chunkRes.ok) {
+        throw new Error(chunkData.error || `分片 ${i + 1} 上传失败`);
+      }
+
+      const progress = Math.round(((i + 1) / totalChunks) * 80) + 10;
+      setUploadProgress(progress);
+      console.log(`分片 ${i + 1}/${totalChunks} 完成`);
     }
 
     // 3. 确认上传完成
