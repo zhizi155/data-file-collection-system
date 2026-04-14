@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import archiver from "archiver";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -10,7 +11,7 @@ const storage = new S3Storage({
   region: "cn-beijing",
 });
 
-// 批量获取下载链接
+// 批量下载 - 返回ZIP文件
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -57,41 +58,72 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 生成每个文件的下载信息
-    const downloadList = await Promise.all(
-      files.map(async (file) => {
-        const shop = file.shop_id ? shopsMap[file.shop_id] : null;
-        const fileName = file.stored_key.split("/").pop() || file.stored_key;
+    // 创建ZIP文件
+    const archive = archiver("zip", { zlib: { level: 9 } });
 
-        // 生成签名下载URL
-        const signedUrl = await storage.generatePresignedUrl({
-          key: file.stored_key,
-          expireTime: 3600,
-        });
+    // 设置响应头
+    const timestamp = new Date().toISOString().split("T")[0];
+    const filename = `批量下载_${timestamp}.zip`;
 
-        return {
-          id: file.id,
-          originalName: file.original_name,
-          storedKey: file.stored_key,
-          fileName: fileName,
-          shopName: shop?.name || "",
-          shopSite: shop?.site || "",
-          shopPlatform: shop?.platform || "",
-          // 目录路径：站点/平台/文件名
-          directoryPath: `${shop?.site || "未知站点"}/${shop?.platform || "未知平台"}`,
-          downloadUrl: signedUrl,
-        };
-      })
-    );
+    // 收集所有文件数据
+    const filePromises = files.map(async (file) => {
+      const shop = file.shop_id ? shopsMap[file.shop_id] : null;
+      const fileName = file.stored_key.split("/").pop() || file.stored_key;
 
-    return NextResponse.json({
-      success: true,
-      data: downloadList,
+      // 目录路径：站点/平台/文件名
+      const dirPath = `${shop?.site || "未知站点"}/${shop?.platform || "未知平台"}`;
+
+      try {
+        // 从存储获取文件内容
+        const fileBuffer = await storage.readFile({ fileKey: file.stored_key });
+
+        // 添加到ZIP，路径为：站点/平台/文件名
+        archive.append(fileBuffer, { name: `${dirPath}/${fileName}` });
+
+        return { success: true, fileName, dirPath };
+      } catch (err) {
+        console.error(`处理文件 ${fileName} 失败:`, err);
+        return { success: false, fileName, dirPath };
+      }
     });
+
+    await Promise.all(filePromises);
+
+    // 完成ZIP打包
+    archive.finalize();
+
+    // 返回ZIP文件流
+    const chunks: Uint8Array[] = [];
+
+    return new Response(
+      new ReadableStream({
+        async start(controller) {
+          archive.on("data", (chunk) => {
+            chunks.push(chunk);
+          });
+
+          archive.on("end", () => {
+            const buffer = Buffer.concat(chunks);
+            controller.enqueue(buffer);
+            controller.close();
+          });
+
+          archive.on("error", (err) => {
+            controller.error(err);
+          });
+        },
+      }),
+      {
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        },
+      }
+    );
   } catch (error) {
-    console.error("批量获取下载链接失败:", error);
+    console.error("批量下载失败:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "获取下载链接失败" },
+      { error: error instanceof Error ? error.message : "下载失败" },
       { status: 500 }
     );
   }

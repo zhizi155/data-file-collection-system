@@ -263,111 +263,57 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   };
 
-  // 批量下载文件（保持目录结构：站点/平台/文件名）
+  // 批量下载文件（服务端打包ZIP，保持目录结构：站点/平台/文件名）
   const batchDownloadFiles = async () => {
     if (selectedFiles.size === 0) {
       setError("请先选择要下载的文件");
       return;
     }
 
-    // 检查浏览器是否支持 File System Access API
-    if (!("showDirectoryPicker" in window)) {
-      setError("您的浏览器不支持批量下载功能，请使用 Chrome、Edge 或其他支持 File System Access API 的浏览器");
-      return;
-    }
-
     try {
       setDownloading(true);
       setDownloadProgress(0);
-      setDownloadStatus("正在获取下载链接...");
+      setDownloadStatus("正在打包文件...");
 
-      // 获取批量下载信息
-      const res = await fetch("/api/files/batch-download", {
+      // 调用服务端批量下载API
+      const response = await fetch("/api/files/batch-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileIds: Array.from(selectedFiles) }),
       });
 
-      const data = await res.json();
-      if (!data.success) {
-        setError(data.error || "获取下载信息失败");
+      if (!response.ok) {
+        const errorData = await response.json();
+        setError(errorData.error || "打包失败");
         setDownloading(false);
+        setDownloadStatus("");
         return;
       }
 
-      const downloadList = data.data;
+      setDownloadStatus("正在下载...");
 
-      // 让用户选择保存目录
-      setDownloadStatus("请选择保存目录...");
-      const dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker();
+      // 获取ZIP文件并触发下载
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `批量下载_${new Date().toISOString().split("T")[0]}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
-      const totalFiles = downloadList.length;
-      let successCount = 0;
-      let failCount = 0;
-
-      // 按目录分组文件
-      const filesByDir = new Map<string, typeof downloadList>();
-      downloadList.forEach((file: { directoryPath: string; fileName: string }) => {
-        const dir = file.directoryPath;
-        if (!filesByDir.has(dir)) {
-          filesByDir.set(dir, []);
-        }
-        filesByDir.get(dir)!.push(file);
-      });
-
-      // 创建目录并下载文件
-      for (const [dirPath, files] of filesByDir) {
-        // 创建目录结构
-        const subDirs = dirPath.split("/");
-        let currentDir = dirHandle;
-
-        for (const subDir of subDirs) {
-          currentDir = await currentDir.getDirectoryHandle(subDir, { create: true });
-        }
-
-        // 下载该目录下的所有文件
-        for (const file of files) {
-          setDownloadStatus(`正在下载: ${file.fileName}`);
-          try {
-            const response = await fetch(file.downloadUrl);
-            if (!response.ok) throw new Error("下载失败");
-
-            const blob = await response.blob();
-
-            // 创建文件
-            const fileHandle = await currentDir.getFileHandle(file.fileName, { create: true });
-            const writable = await fileHandle.createWritable();
-            await writable.write(blob);
-            await writable.close();
-
-            successCount++;
-          } catch (err) {
-            console.error(`下载文件 ${file.fileName} 失败:`, err);
-            failCount++;
-          }
-
-          setDownloadProgress(((successCount + failCount) / totalFiles) * 100);
-        }
-      }
-
-      setDownloadStatus(`下载完成！成功: ${successCount}, 失败: ${failCount}`);
+      setDownloadStatus("下载完成！");
       setTimeout(() => {
         setDownloading(false);
         setDownloadProgress(0);
         setDownloadStatus("");
       }, 2000);
     } catch (err) {
-      if ((err as Error).name === "AbortError") {
-        // 用户取消选择目录
-        setDownloading(false);
-        setDownloadProgress(0);
-        setDownloadStatus("");
-      } else {
-        setError(err instanceof Error ? err.message : "下载失败");
-        setDownloading(false);
-        setDownloadProgress(0);
-        setDownloadStatus("");
-      }
+      setError(err instanceof Error ? err.message : "下载失败");
+      setDownloading(false);
+      setDownloadProgress(0);
+      setDownloadStatus("");
     }
   };
 
