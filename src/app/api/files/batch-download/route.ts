@@ -70,14 +70,14 @@ export async function POST(request: NextRequest) {
       const shop = file.shop_id ? shopsMap[file.shop_id] : null;
       const fileName = file.stored_key.split("/").pop() || file.stored_key;
 
-      // 目录路径：站点/平台/文件名
-      const dirPath = `${shop?.site || "未知站点"}/${shop?.platform || "未知平台"}`;
+      // 目录路径：站点/平台/店铺名/文件名
+      const dirPath = `${shop?.site || "未知站点"}/${shop?.platform || "未知平台"}/${shop?.name || "未知店铺"}`;
 
       try {
         // 从存储获取文件内容
         const fileBuffer = await storage.readFile({ fileKey: file.stored_key });
 
-        // 添加到ZIP，路径为：站点/平台/文件名
+        // 添加到ZIP，路径为：站点/平台/店铺名/文件名
         archive.append(fileBuffer, { name: `${dirPath}/${fileName}` });
 
         return { success: true, fileName, dirPath };
