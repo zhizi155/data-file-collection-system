@@ -182,13 +182,9 @@ export default function UploadPage() {
     }
   };
 
-  // 大文件分片上传
+  // 大文件上传 - 使用预签名URL直接上传到S3
   const uploadLargeFile = async () => {
     if (!file) return;
-    
-    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-    let uploadedChunks = 0;
 
     // 1. 获取预签名上传URL
     setUploadProgress(5);
@@ -209,47 +205,40 @@ export default function UploadPage() {
       throw new Error(presignData.error || "获取上传链接失败");
     }
 
-    const { objectKey } = presignData;
+    const { uploadUrl, objectKey } = presignData;
 
-    // 2. 分片上传文件
-    // 注意：这里我们仍然使用 FormData 方式，因为预签名URL是用于直接上传到S3的
-    // 如果S3不支持直接PUT，则回退到普通上传
+    // 2. 直接使用预签名URL上传整个文件到S3
+    // 这样可以绕过API网关的大小限制
+    setUploadProgress(10);
+    
     try {
-      // 尝试使用 fetch 直接上传到预签名URL
-      for (let i = 0; i < totalChunks; i++) {
-        const start = i * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        const chunk = file.slice(start, end);
-
-        const chunkFormData = new FormData();
-        chunkFormData.append("file", chunk);
-        chunkFormData.append("shopId", selectedShop);
-        if (selectedExportType) {
-          chunkFormData.append("exportType", selectedExportType);
-        }
-        chunkFormData.append("chunkIndex", i.toString());
-        chunkFormData.append("totalChunks", totalChunks.toString());
-        chunkFormData.append("objectKey", objectKey);
-        chunkFormData.append("fileName", file.name);
-        chunkFormData.append("fileSize", file.size.toString());
-
-        const chunkRes = await fetch("/api/upload/chunk", {
-          method: "POST",
-          body: chunkFormData,
-        });
-
-        if (!chunkRes.ok) {
-          const chunkData = await chunkRes.json().catch(() => ({}));
-          throw new Error(chunkData.error || `分片 ${i + 1} 上传失败`);
-        }
-
-        uploadedChunks++;
-        const progress = Math.round((uploadedChunks / totalChunks) * 80) + 10;
-        setUploadProgress(progress);
-      }
-    } catch (chunkError) {
-      // 如果分片上传失败，回退到普通上传
-      console.warn("分片上传失败，尝试普通上传:", chunkError);
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const progress = Math.round((e.loaded / e.total) * 80) + 10;
+            setUploadProgress(progress);
+          }
+        };
+        
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`上传失败: ${xhr.status}`));
+          }
+        };
+        
+        xhr.onerror = () => reject(new Error("网络错误"));
+        
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        xhr.send(file);
+      });
+    } catch (uploadError) {
+      // 如果预签名URL上传失败，尝试普通上传
+      console.warn("预签名URL上传失败，尝试普通上传:", uploadError);
       await uploadNormalFile();
       return;
     }

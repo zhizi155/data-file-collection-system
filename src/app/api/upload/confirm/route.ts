@@ -23,15 +23,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 验证文件是否存在
-    const exists = await storage.fileExists({ fileKey: objectKey });
-    if (!exists) {
-      return NextResponse.json(
-        { error: "文件上传失败或文件不存在" },
-        { status: 400 }
-      );
-    }
-
     // 获取文件信息
     const newFileName = objectKey.split("/").pop() || originalName;
 
