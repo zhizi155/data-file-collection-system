@@ -7,14 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-interface NamingRule {
-  id: string;
-  name: string;
-  pattern: string;
-  description: string | null;
-  is_active: boolean;
-}
-
 interface Shop {
   id: string;
   name: string;
@@ -37,29 +29,27 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [rules, setRules] = useState<NamingRule[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
-  const [selectedRule, setSelectedRule] = useState<string>("default");
-  const [selectedShop, setSelectedShop] = useState<string>("none");
+  const [selectedShop, setSelectedShop] = useState<string>("");
+  const [shopLoading, setShopLoading] = useState(true);
 
-  // 加载命名规则和店铺列表
-  const loadData = useCallback(async () => {
+  // 加载店铺列表
+  const loadShops = useCallback(async () => {
+    setShopLoading(true);
     try {
-      const [rulesRes, shopsRes] = await Promise.all([
-        fetch("/api/rules"),
-        fetch("/api/shops?active=true"),
-      ]);
-      const [rulesData, shopsData] = await Promise.all([rulesRes.json(), shopsRes.json()]);
-      if (rulesData.success) setRules(rulesData.data.filter((r: NamingRule) => r.is_active));
-      if (shopsData.success) setShops(shopsData.data);
+      const res = await fetch("/api/shops?active=true");
+      const data = await res.json();
+      if (data.success) setShops(data.data);
     } catch (err) {
-      console.error("加载数据失败:", err);
+      console.error("加载店铺失败:", err);
+    } finally {
+      setShopLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadShops();
+  }, [loadShops]);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -94,7 +84,7 @@ export default function UploadPage() {
   }, []);
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!file || !selectedShop) return;
     setUploading(true);
     setError(null);
     setResult(null);
@@ -102,12 +92,7 @@ export default function UploadPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      if (selectedRule !== "default") {
-        formData.append("ruleId", selectedRule);
-      }
-      if (selectedShop !== "none") {
-        formData.append("shopId", selectedShop);
-      }
+      formData.append("shopId", selectedShop);
 
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
@@ -136,7 +121,6 @@ export default function UploadPage() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const currentRule = rules.find((r) => r.id === selectedRule);
   const currentShop = shops.find((s) => s.id === selectedShop);
 
   return (
@@ -161,14 +145,13 @@ export default function UploadPage() {
             <div className="space-y-2">
               <Label htmlFor="shop" className="flex items-center gap-2">
                 <ShoppingBag className="w-4 h-4" />
-                店铺（可选）
+                店铺 <span className="text-red-500">*</span>
               </Label>
-              <Select value={selectedShop} onValueChange={setSelectedShop}>
+              <Select value={selectedShop} onValueChange={setSelectedShop} disabled={shopLoading}>
                 <SelectTrigger>
-                  <SelectValue placeholder="选择店铺" />
+                  <SelectValue placeholder={shopLoading ? "加载中..." : "请选择店铺"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">不选择</SelectItem>
                   {shops.map((shop) => (
                     <SelectItem key={shop.id} value={shop.id}>
                       {shop.name} ({shop.site} - {shop.platform})
@@ -181,26 +164,8 @@ export default function UploadPage() {
                   已选择店铺: {currentShop.name} | 站点: {currentShop.site} | 平台: {currentShop.platform}
                 </p>
               )}
-            </div>
-
-            {/* 命名规则选择 */}
-            <div className="space-y-2">
-              <Label htmlFor="rule">命名规则</Label>
-              <Select value={selectedRule} onValueChange={setSelectedRule}>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择命名规则" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">默认规则</SelectItem>
-                  {rules.map((rule) => (
-                    <SelectItem key={rule.id} value={rule.id}>
-                      {rule.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {currentRule && (
-                <p className="text-xs text-slate-500">规则: {currentRule.pattern}</p>
+              {shops.length === 0 && !shopLoading && (
+                <p className="text-sm text-amber-600">暂无可用店铺，请先在管理后台添加店铺</p>
               )}
             </div>
 
@@ -285,8 +250,13 @@ export default function UploadPage() {
             )}
 
             {/* 上传按钮 */}
-            {file && !result && (
-              <Button onClick={handleUpload} disabled={uploading} className="w-full" size="lg">
+            {file && (
+              <Button 
+                onClick={handleUpload} 
+                disabled={uploading || !selectedShop || shopLoading} 
+                className="w-full" 
+                size="lg"
+              >
                 {uploading ? "上传中..." : "开始上传"}
               </Button>
             )}

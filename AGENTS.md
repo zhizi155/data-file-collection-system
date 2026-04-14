@@ -48,8 +48,8 @@
 - `/admin` - 管理后台（命名规则配置）
 
 ### API 接口
-- `POST /api/upload` - 文件上传（FormData，字段: file, ruleId?, shopId?）
-- `GET /api/rules` - 获取所有命名规则
+- `POST /api/upload` - 文件上传（FormData，字段: file, shopId 必须）
+- `GET /api/rules` - 获取所有命名规则（管理后台使用）
 - `POST /api/rules` - 创建命名规则
 - `PUT /api/rules` - 更新命名规则
 - `DELETE /api/rules?id=xxx` - 删除命名规则
