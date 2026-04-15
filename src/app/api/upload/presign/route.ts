@@ -130,6 +130,12 @@ async function getNamingPattern(
     newName = newName.replace(new RegExp(escapedKey, "g"), value);
   }
 
+  // 如果生成的名称为空、只有点、或只有空白字符，fallback 到原始文件名（不含扩展名）
+  const newNameWithoutExt = newName.replace(/\.[^.]+$/, "");
+  if (!newNameWithoutExt.trim()) {
+    newName = nameWithoutExt;
+  }
+
   if (ext && !newName.endsWith(`.${ext}`)) {
     newName = `${newName}.${ext}`;
   }

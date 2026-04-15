@@ -14,7 +14,7 @@ const storage = new S3Storage({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { objectKey, originalName, fileSize, shopId, exportType, ruleId } = body;
+    const { objectKey, originalName, fileSize, shopId, exportType, ruleId, displayName } = body;
 
     if (!objectKey || !originalName || !fileSize) {
       return NextResponse.json(
@@ -24,13 +24,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 获取文件信息
-    const newFileName = objectKey.split("/").pop() || originalName;
+    const newFileName = displayName || objectKey.split("/").pop() || originalName;
 
     // 记录到数据库
     const supabase = getSupabaseClient();
     const { error: insertError } = await supabase.from("uploaded_files").insert({
       original_name: originalName,
       stored_key: objectKey,
+      display_name: newFileName, // 保存命名规则生成的文件名（不含路径）
       file_size: fileSize.toString(),
       mime_type: "application/octet-stream",
       rule_id: ruleId || null,

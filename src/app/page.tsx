@@ -211,8 +211,8 @@ export default function UploadPage() {
       throw new Error(presignData.error || "获取上传链接失败");
     }
 
-    const { objectKey } = presignData;
-    console.log(`开始分片上传: ${file.name}, 大小: ${file.size}, 分片数: ${totalChunks}`);
+    const { objectKey, newName } = presignData;
+    console.log(`开始分片上传: ${file.name}, 大小: ${file.size}, 分片数: ${totalChunks}, 命名: ${newName}`);
 
     // 2. 分片上传
     let actualFileKey = objectKey; // 用于存储 SDK 返回的实际 key
@@ -259,6 +259,7 @@ export default function UploadPage() {
       body: JSON.stringify({
         objectKey: actualFileKey, // 使用 SDK 返回的实际 key
         originalName: file.name,
+        displayName: newName, // 命名规则生成的文件名
         fileSize: file.size,
         shopId: selectedShop,
         exportType: selectedExportType || undefined,

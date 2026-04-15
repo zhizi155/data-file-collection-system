@@ -91,6 +91,7 @@ interface UploadedFile {
   id: string;
   original_name: string;
   stored_key: string;
+  display_name: string | null; // 命名规则生成的文件名（不含路径）
   file_size: string;
   mime_type: string | null;
   rule_id: string | null;
@@ -248,7 +249,7 @@ export default function AdminPage() {
     const rows = selectedFileData.map((f, idx) => [
       idx + 1,
       f.original_name,
-      f.stored_key.split("/").pop() || f.stored_key,
+      f.display_name || f.stored_key.split("/").pop() || f.stored_key,
       f.shops?.name || "-",
       f.shops?.site || "-",
       f.shops?.platform || "-",
@@ -880,8 +881,8 @@ export default function AdminPage() {
                                 <span className="text-slate-400 text-xs">-</span>
                               )}
                             </TableCell>
-                            <TableCell className="text-sm text-slate-500 max-w-[200px] truncate" title={file.stored_key}>
-                              {file.stored_key.split("/").pop()}
+                            <TableCell className="text-sm text-slate-500 max-w-[200px] truncate" title={file.display_name || file.stored_key}>
+                              {file.display_name || file.stored_key.split("/").pop()}
                             </TableCell>
                             <TableCell>
                               {file.shops ? (

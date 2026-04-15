@@ -31,10 +31,12 @@ export const uploadedFiles = pgTable(
 		id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
 		original_name: varchar("original_name", { length: 255 }).notNull(),
 		stored_key: varchar("stored_key", { length: 500 }).notNull(),
+		display_name: varchar("display_name", { length: 255 }), // 命名规则生成的文件名（不含路径）
 		file_size: varchar("file_size", { length: 50 }).notNull(),
 		mime_type: varchar("mime_type", { length: 100 }),
 		rule_id: varchar("rule_id", { length: 36 }),
 		shop_id: varchar("shop_id", { length: 36 }),
+		export_type: varchar("export_type", { length: 100 }), // 文件保存类型
 		created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 	},
 	(table) => [

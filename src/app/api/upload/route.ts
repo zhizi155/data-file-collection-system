@@ -72,6 +72,12 @@ async function applyNamingPattern(
     newName = newName.replace(new RegExp(escapedKey, "g"), value);
   }
 
+  // 如果生成的名称为空、只有点、或只有空白字符，fallback 到原始文件名（不含扩展名）
+  const newNameWithoutExt = newName.replace(/\.[^.]+$/, "");
+  if (!newNameWithoutExt.trim()) {
+    newName = nameWithoutExt;
+  }
+
   // 确保有扩展名
   if (ext && !newName.endsWith(`.${ext}`)) {
     newName = `${newName}.${ext}`;
@@ -152,6 +158,7 @@ export async function POST(request: NextRequest) {
     const { error: insertError } = await supabase.from("uploaded_files").insert({
       original_name: file.name,
       stored_key: fileKey,
+      display_name: newFileName, // 保存命名规则生成的文件名（不含路径）
       file_size: file.size.toString(),
       mime_type: file.type,
       rule_id: ruleId || null,
