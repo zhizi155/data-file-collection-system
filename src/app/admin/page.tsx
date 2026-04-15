@@ -96,6 +96,7 @@ interface UploadedFile {
   rule_id: string | null;
   shop_id: string | null;
   created_at: string;
+  date_range: string | null; // 智能识别的日期区间
   shops?: {
     name: string;
     site: string;
@@ -844,6 +845,7 @@ export default function AdminPage() {
                             </button>
                           </TableHead>
                           <TableHead>原始文件名</TableHead>
+                          <TableHead>日期区间</TableHead>
                           <TableHead>保存文件名</TableHead>
                           <TableHead>店铺</TableHead>
                           <TableHead>文件大小</TableHead>
@@ -868,6 +870,15 @@ export default function AdminPage() {
                             </TableCell>
                             <TableCell className="font-medium max-w-[200px] truncate" title={file.original_name}>
                               {file.original_name}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {file.date_range ? (
+                                <Badge variant="secondary" className="font-mono text-xs">
+                                  {file.date_range}
+                                </Badge>
+                              ) : (
+                                <span className="text-slate-400 text-xs">-</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-sm text-slate-500 max-w-[200px] truncate" title={file.stored_key}>
                               {file.stored_key.split("/").pop()}

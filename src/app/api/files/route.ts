@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { smartExtractDateRange } from "@/lib/date-utils";
 
 // 获取上传文件记录
 export async function GET(request: NextRequest) {
@@ -47,10 +48,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 合并数据
+    // 合并数据并添加日期区间识别
     const filesWithShops = data?.map((file) => ({
       ...file,
       shops: file.shop_id ? shopsMap[file.shop_id] || null : null,
+      date_range: smartExtractDateRange(file.original_name),
     }));
 
     // 获取总数
