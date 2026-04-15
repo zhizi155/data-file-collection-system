@@ -26,7 +26,8 @@ interface UploadResult {
 
 // 大文件阈值（使用分片上传的文件大小阈值）
 // 文件超过此大小将使用分片上传（单片4MB）
-const LARGE_FILE_THRESHOLD = 16 * 1024 * 1024; // 16MB
+// 注意：实际限制包括请求体+表单数据，因此设置12MB留有余量
+const LARGE_FILE_THRESHOLD = 12 * 1024 * 1024; // 12MB
 
 // 推荐的压缩工具
 const COMPRESSION_TIPS = "建议将文件压缩后再上传。可使用 7-Zip、WinRAR 等工具压缩，或使用 ZIP 格式打包。";
