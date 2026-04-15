@@ -6,8 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 
 interface Shop {
   id: string;
@@ -16,12 +14,6 @@ interface Shop {
   platform: string;
   export_type: string | null;
   is_active: boolean;
-}
-
-interface ExportType {
-  id: string;
-  name: string;
-  description: string | null;
 }
 
 interface UploadResult {
@@ -51,58 +43,6 @@ export default function UploadPage() {
   const [selectedExportType, setSelectedExportType] = useState<string>("");
   const [shopLoading, setShopLoading] = useState(true);
   const [largeFileWarning, setLargeFileWarning] = useState<string | null>(null);
-  const [exportTypes, setExportTypes] = useState<ExportType[]>([]);
-  const [showExportTypeDialog, setShowExportTypeDialog] = useState(false);
-  const [newExportTypeName, setNewExportTypeName] = useState("");
-  const [newExportTypeDesc, setNewExportTypeDesc] = useState("");
-  const [addingExportType, setAddingExportType] = useState(false);
-
-  // 加载导出类型列表
-  const loadExportTypes = useCallback(async () => {
-    try {
-      const res = await fetch("/api/export-types");
-      const data = await res.json();
-      if (data.success) setExportTypes(data.data);
-    } catch (err) {
-      console.error("加载导出类型失败:", err);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadExportTypes();
-  }, [loadExportTypes]);
-
-  // 添加新的导出类型
-  const handleAddExportType = async () => {
-    if (!newExportTypeName.trim()) return;
-    
-    setAddingExportType(true);
-    try {
-      const res = await fetch("/api/export-types", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newExportTypeName.trim(),
-          description: newExportTypeDesc.trim() || undefined,
-        }),
-      });
-      const data = await res.json();
-      
-      if (data.success) {
-        await loadExportTypes();
-        setSelectedExportType(data.data.name);
-        setShowExportTypeDialog(false);
-        setNewExportTypeName("");
-        setNewExportTypeDesc("");
-      } else {
-        setError(data.error || "添加失败");
-      }
-    } catch (err) {
-      setError("添加失败");
-    } finally {
-      setAddingExportType(false);
-    }
-  };
 
   // 加载店铺列表
   const loadShops = useCallback(async () => {
@@ -389,41 +329,30 @@ export default function UploadPage() {
               )}
             </div>
 
-            {/* 导出类型选择 */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
+            {/* 导出类型选择（仅当店铺有设置时显示） */}
+            {hasExportType && (
+              <div className="space-y-2">
                 <Label htmlFor="exportType" className="flex items-center gap-2">
                   <FileType className="w-4 h-4" />
-                  文件保存类型
+                  文件保存类型 <span className="text-red-500">*</span>
                 </Label>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => setShowExportTypeDialog(true)}
-                  className="h-7 text-xs"
-                >
-                  + 添加
-                </Button>
-              </div>
-              <Select value={selectedExportType} onValueChange={setSelectedExportType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="请选择文件保存类型（可选）" />
-                </SelectTrigger>
-                <SelectContent>
-                  {exportTypes.map((type) => (
-                    <SelectItem key={type.id} value={type.name}>
-                      {type.name}
-                      {type.description && <span className="ml-2 text-muted-foreground text-xs">- {type.description}</span>}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {currentShop?.export_type && (
+                <Select value={selectedExportType} onValueChange={setSelectedExportType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="请选择文件保存类型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {exportTypeOptions.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-slate-500">
-                  店铺「{currentShop.name}」预设类型：{currentShop.export_type}
+                  店铺「{currentShop?.name}」的导出类型：{currentShop?.export_type}
                 </p>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* 拖拽上传区域 */}
             {!result && (
@@ -537,7 +466,7 @@ export default function UploadPage() {
             {file && (
               <Button 
                 onClick={handleUpload} 
-                disabled={uploading || !selectedShop || shopLoading} 
+                disabled={uploading || !selectedShop || (hasExportType && !selectedExportType) || shopLoading} 
                 className="w-full" 
                 size="lg"
               >
@@ -566,46 +495,6 @@ export default function UploadPage() {
           </a>
         </div>
       </div>
-
-      {/* 添加导出类型对话框 */}
-      <Dialog open={showExportTypeDialog} onOpenChange={setShowExportTypeDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>添加导出类型</DialogTitle>
-            <DialogDescription>
-              创建一个新的文件保存类型选项
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="typeName">名称 <span className="text-red-500">*</span></Label>
-              <Input
-                id="typeName"
-                placeholder="例如：原始、压缩、归档"
-                value={newExportTypeName}
-                onChange={(e) => setNewExportTypeName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="typeDesc">描述（可选）</Label>
-              <Input
-                id="typeDesc"
-                placeholder="简要说明这个类型的用途"
-                value={newExportTypeDesc}
-                onChange={(e) => setNewExportTypeDesc(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowExportTypeDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleAddExportType} disabled={addingExportType || !newExportTypeName.trim()}>
-              {addingExportType ? "添加中..." : "添加"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -71,10 +71,6 @@
 - `GET /api/files` - 获取上传记录列表
 - `DELETE /api/files?id=xxx` - 删除上传记录
 - `GET /api/files/download?key=xxx` - 下载/预览文件
-- `GET /api/export-types` - 获取导出类型列表
-- `POST /api/export-types` - 创建导出类型
-- `PUT /api/export-types` - 更新导出类型
-- `DELETE /api/export-types?id=xxx` - 删除导出类型
 
 ### 命名规则变量
 | 变量 | 说明 | 示例 |
@@ -96,7 +92,6 @@
 - `uploaded_files` - 上传文件记录表
 - `shops` - 店铺列表表（支持从 Excel 导入）
 - `custom_variables` - 自定义变量表
-- `export_types` - 导出类型表（文件保存类型）
 
 ### 大文件处理机制
 - **阈值**: 文件 > 50MB 被视为大文件
