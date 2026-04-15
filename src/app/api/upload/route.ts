@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { S3Storage } from "coze-coding-dev-sdk";
-import { Readable } from "stream";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -38,7 +37,7 @@ async function applyNamingPattern(
     const supabase = getSupabaseClient();
     const { data: shop } = await supabase
       .from("shops")
-      .select("name, site, platform, export_type")
+      .select("name, site, platform")
       .eq("id", shopId)
       .maybeSingle();
 
@@ -96,15 +95,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "没有上传文件" }, { status: 400 });
     }
 
-    const fileSizeMB = file.size / (1024 * 1024);
-    console.log(`开始上传文件: ${file.name}, 大小: ${fileSizeMB.toFixed(2)} MB`);
-
     // 获取命名规则
     const supabase = getSupabaseClient();
     let pattern = "{original}";
 
     if (ruleId) {
-      // 如果指定了规则ID，使用指定规则
       const { data: rule, error } = await supabase
         .from("naming_rules")
         .select("pattern")
@@ -119,46 +114,11 @@ export async function POST(request: NextRequest) {
       if (rule) {
         pattern = rule.pattern;
       }
-    } else if (exportType) {
-      // 如果指定了 exportType，优先查找匹配的规则（检查是否包含该类型）
-      const { data: rules, error } = await supabase
-        .from("naming_rules")
-        .select("pattern, export_type")
-        .eq("is_active", true)
-        .not("export_type", "is", null);
-
-      if (error) {
-        return NextResponse.json({ error: `查询命名规则失败: ${error.message}` }, { status: 500 });
-      }
-
-      // 找到 export_type 包含当前类型的规则
-      const matchedRule = rules?.find(r => {
-        if (!r.export_type) return false;
-        const types = r.export_type.split(",").map(t => t.trim());
-        return types.includes(exportType);
-      });
-
-      if (matchedRule) {
-        pattern = matchedRule.pattern;
-      } else {
-        // 没有找到匹配的规则，使用通用规则
-        const { data: genericRules, error } = await supabase
-          .from("naming_rules")
-          .select("pattern")
-          .is("export_type", null)
-          .eq("is_active", true)
-          .limit(1);
-
-        if (!error && genericRules && genericRules.length > 0) {
-          pattern = genericRules[0].pattern;
-        }
-      }
     } else {
-      // 没有指定规则和类型，使用通用规则
+      // 获取默认命名规则
       const { data: rules, error } = await supabase
         .from("naming_rules")
         .select("id, pattern")
-        .is("export_type", null)
         .eq("is_active", true)
         .order("created_at")
         .limit(1);
@@ -175,35 +135,15 @@ export async function POST(request: NextRequest) {
     // 应用命名规则（包含店铺和自定义变量）
     const newFileName = await applyNamingPattern(pattern, file.name, shopId || undefined, exportType || undefined);
 
-    // 使用本地生成的 key（确保与存储路径一致）
-    const localFileKey = `uploads/${newFileName}`;
+    // 读取文件内容
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    // 对于大于10MB的文件使用流式上传，避免内存问题
-    if (file.size > 10 * 1024 * 1024) {
-      console.log(`文件大于10MB，使用流式上传`);
-      // 将 File 转为 Node.js Readable Stream
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      const readable = Readable.from(buffer);
-
-      await storage.streamUploadFile({
-        stream: readable,
-        fileName: localFileKey,
-        contentType: file.type || "application/octet-stream",
-      });
-    } else {
-      // 小文件直接上传
-      const buffer = Buffer.from(await file.arrayBuffer());
-      await storage.uploadFile({
-        fileContent: buffer,
-        fileName: localFileKey,
-        contentType: file.type || "application/octet-stream",
-      });
-    }
-
-    // 使用本地生成的 key 作为最终的文件 key
-    const fileKey = localFileKey;
-    console.log(`文件上传成功: ${fileKey}`);
+    // 上传到对象存储
+    const fileKey = await storage.uploadFile({
+      fileContent: buffer,
+      fileName: `uploads/${newFileName}`,
+      contentType: file.type || "application/octet-stream",
+    });
 
     // 记录到数据库
     const { error: insertError } = await supabase.from("uploaded_files").insert({
