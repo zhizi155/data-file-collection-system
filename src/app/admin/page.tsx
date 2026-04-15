@@ -940,7 +940,7 @@ export default function AdminPage() {
                         <div className="space-y-2">
                           <Label htmlFor="rulePattern">命名模式</Label>
                           <Input id="rulePattern" value={ruleForm.pattern} onChange={(e) => setRuleForm({ ...ruleForm, pattern: e.target.value })} placeholder="{date}_{original}" />
-                          <p className="text-xs text-slate-500">支持变量: {"{original}"} {"{date}"} {"{time}"} {"{datetime}"} {"{random}"} {"{timestamp}"} {"{shop}"} {"{shop_name}"} {"{shop_site}"} {"{shop_platform}"} {"{自定义变量}"}</p>
+                          <p className="text-xs text-slate-500">支持变量: {"{original}"} {"{date}"} {"{time}"} {"{datetime}"} {"{random}"} {"{timestamp}"} {"{shop}"} {"{shop_name}"} {"{shop_site}"} {"{shop_platform}"} {"{export_type}"} {"{自定义变量}"}</p>
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="ruleDesc">描述说明</Label>
