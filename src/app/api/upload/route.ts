@@ -138,12 +138,18 @@ export async function POST(request: NextRequest) {
     // 读取文件内容
     const buffer = Buffer.from(await file.arrayBuffer());
 
+    // 本地生成的 key
+    const localFileKey = `uploads/${newFileName}`;
+
     // 上传到对象存储
-    const fileKey = await storage.uploadFile({
+    await storage.uploadFile({
       fileContent: buffer,
-      fileName: `uploads/${newFileName}`,
+      fileName: localFileKey,
       contentType: file.type || "application/octet-stream",
     });
+
+    // 使用本地生成的 key 作为最终的文件 key
+    const fileKey = localFileKey;
 
     // 记录到数据库
     const { error: insertError } = await supabase.from("uploaded_files").insert({
