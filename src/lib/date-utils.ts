@@ -273,7 +273,20 @@ export function smartExtractDateRange(filename: string): string | null {
     return `${formatDate(startDate)}~${formatDate(endDate)}`;
   }
 
-  // 3. 尝试匹配单个日期 (只返回一个日期，不是区间)
+  // 3. 尝试匹配纯数字的日期区间 (如 20240101_20240107 或 20240101-20240107)
+  // 注意：要在 extractDates 之前检查，避免去重后丢失区间信息
+  const compactRangeMatch = nameWithoutExt.match(/(\d{8})\s*[~_至到-]\s*(\d{8})/);
+  if (compactRangeMatch) {
+    const startStr = compactRangeMatch[1];
+    const endStr = compactRangeMatch[2];
+    const startDate = parseDate(startStr);
+    const endDate = parseDate(endStr);
+    if (startDate && endDate) {
+      return `${formatDate(startDate)}~${formatDate(endDate)}`;
+    }
+  }
+
+  // 4. 尝试匹配其他格式的日期区间和单个日期
   const dates = extractDates(nameWithoutExt);
   if (dates.length >= 1) {
     // 去重并排序
@@ -287,18 +300,6 @@ export function smartExtractDateRange(filename: string): string | null {
     } else if (uniqueDates.length >= 2) {
       // 多个日期，返回最小和最大日期作为区间
       return `${formatDate(uniqueDates[0])}~${formatDate(uniqueDates[uniqueDates.length - 1])}`;
-    }
-  }
-
-  // 4. 尝试匹配纯数字的日期区间 (如 2024010120240107)
-  const compactRangeMatch = nameWithoutExt.match(/(\d{8})\s*[~-至到]\s*(\d{8})/);
-  if (compactRangeMatch) {
-    const startStr = compactRangeMatch[1];
-    const endStr = compactRangeMatch[2];
-    const startDate = parseDate(startStr);
-    const endDate = parseDate(endStr);
-    if (startDate && endDate) {
-      return `${formatDate(startDate)}~${formatDate(endDate)}`;
     }
   }
 
