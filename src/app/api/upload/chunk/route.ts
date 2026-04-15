@@ -90,13 +90,14 @@ export async function POST(request: NextRequest) {
       console.log(`合并完成，大小: ${mergedBuffer.length} bytes`);
 
       // 使用 uploadFile 上传到 S3（而不是 streamUploadFile）
-      const fileKey = await storage.uploadFile({
+      // SDK 会自动添加随机后缀避免文件名冲突，返回实际的存储 key
+      const actualFileKey = await storage.uploadFile({
         fileContent: mergedBuffer,
         fileName: objectKey,
         contentType: "application/octet-stream",
       });
 
-      console.log(`文件上传成功: ${fileKey}`);
+      console.log(`文件上传成功，实际 key: ${actualFileKey}`);
 
       // 清理分片文件
       try {
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        fileKey: fileKey,
+        fileKey: actualFileKey,
         message: "所有分片上传完成",
       });
     }

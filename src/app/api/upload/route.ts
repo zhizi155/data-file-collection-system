@@ -37,7 +37,7 @@ async function applyNamingPattern(
     const supabase = getSupabaseClient();
     const { data: shop } = await supabase
       .from("shops")
-      .select("name, site, platform")
+      .select("name, site, platform, export_type")
       .eq("id", shopId)
       .maybeSingle();
 
@@ -138,18 +138,15 @@ export async function POST(request: NextRequest) {
     // 读取文件内容
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // 本地生成的 key
-    const localFileKey = `uploads/${newFileName}`;
-
-    // 上传到对象存储
-    await storage.uploadFile({
+    // 上传到对象存储，使用 SDK 返回的实际 key
+    const uploadResult = await storage.uploadFile({
       fileContent: buffer,
-      fileName: localFileKey,
+      fileName: `uploads/${newFileName}`,
       contentType: file.type || "application/octet-stream",
     });
 
-    // 使用本地生成的 key 作为最终的文件 key
-    const fileKey = localFileKey;
+    // 使用 SDK 返回的 key（包含随机后缀，与实际存储路径一致）
+    const fileKey = uploadResult;
 
     // 记录到数据库
     const { error: insertError } = await supabase.from("uploaded_files").insert({

@@ -215,6 +215,7 @@ export default function UploadPage() {
     console.log(`开始分片上传: ${file.name}, 大小: ${file.size}, 分片数: ${totalChunks}`);
 
     // 2. 分片上传
+    let actualFileKey = objectKey; // 用于存储 SDK 返回的实际 key
     for (let i = 0; i < totalChunks; i++) {
       const start = i * CHUNK_SIZE;
       const end = Math.min(start + CHUNK_SIZE, file.size);
@@ -234,9 +235,15 @@ export default function UploadPage() {
       });
 
       const chunkData = await chunkRes.json().catch(() => ({}));
-      
+
       if (!chunkRes.ok) {
         throw new Error(chunkData.error || `分片 ${i + 1} 上传失败`);
+      }
+
+      // 最后一个分片会返回 SDK 实际返回的 fileKey
+      if (chunkData.fileKey) {
+        actualFileKey = chunkData.fileKey;
+        console.log(`获取到实际存储 key: ${actualFileKey}`);
       }
 
       const progress = Math.round(((i + 1) / totalChunks) * 80) + 10;
@@ -244,13 +251,13 @@ export default function UploadPage() {
       console.log(`分片 ${i + 1}/${totalChunks} 完成`);
     }
 
-    // 3. 确认上传完成
+    // 3. 确认上传完成，使用 SDK 返回的实际 fileKey
     setUploadProgress(95);
     const confirmRes = await fetch("/api/upload/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        objectKey,
+        objectKey: actualFileKey, // 使用 SDK 返回的实际 key
         originalName: file.name,
         fileSize: file.size,
         shopId: selectedShop,

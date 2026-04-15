@@ -43,9 +43,9 @@ async function getNamingPattern(
       .not("export_type", "is", null);
 
     // 找到 export_type 包含当前类型的规则
-    const matchedRule = rules?.find(r => {
+    const matchedRule = rules?.find((r: { export_type: string }) => {
       if (!r.export_type) return false;
-      const types = r.export_type.split(",").map(t => t.trim());
+      const types = r.export_type.split(",").map((t: string) => t.trim());
       return types.includes(exportType);
     });
 
