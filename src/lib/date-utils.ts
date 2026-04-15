@@ -30,6 +30,18 @@ function parseDate(dateStr: string, fallbackYear?: number): Date | null {
     );
   }
 
+  // 格式: DD_MM_YYYY 或 DD-MM-YYYY 或 DD.MM.YYYY (日_月_年，Shopee 等电商平台常用)
+  const ddMmYyyyMatch = cleaned.match(/^(\d{1,2})[-_.](\d{1,2})[-_.](\d{4})$/);
+  if (ddMmYyyyMatch) {
+    const day = parseInt(ddMmYyyyMatch[1]);
+    const month = parseInt(ddMmYyyyMatch[2]);
+    const year = parseInt(ddMmYyyyMatch[3]);
+    // 验证月份在合理范围内
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return new Date(year, month - 1, day);
+    }
+  }
+
   // 格式: MM-DD 或 MMDD (需要推断年份)
   const shortMatch = cleaned.match(/^(\d{2})[-/.](\d{2})$/);
   if (shortMatch) {
@@ -84,21 +96,45 @@ function extractDates(filename: string): Date[] {
     }
   }
 
+  // 提取 DD_MM_YYYY 或 DD-MM-YYYY 格式 (日_月_年，Shopee 等电商平台常用)
+  const ddMmYyyyPattern = /(\d{1,2})[-_.](\d{1,2})[-_.](\d{4})/g;
+  while ((match = ddMmYyyyPattern.exec(filename)) !== null) {
+    const day = parseInt(match[1]);
+    const month = parseInt(match[2]);
+    const year = parseInt(match[3]);
+    // 验证月份在合理范围内
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      dates.push(new Date(year, month - 1, day));
+    }
+  }
+
   // 提取 MM-DD 或 MMDD 格式（不带年份）
   // 这种格式通常需要两个日期组成区间
+  // 注意：只匹配月份在 1-12 范围内的日期，避免误匹配 DD-MM-YYYY 格式
   const shortPattern = /(\d{2})[-/.](\d{2})(?=[^-\d]|$)/g;
   const shortDates: { month: number; day: number; index: number }[] = [];
   while ((match = shortPattern.exec(filename)) !== null) {
-    const month = parseInt(match[1]);
-    const day = parseInt(match[2]);
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      shortDates.push({ month, day, index: match.index });
-      // 如果有两个短日期，用当前年份创建完整日期
-      if (shortDates.length === 2) {
-        const year = dates.length > 0 ? dates[0].getFullYear() : currentYear;
-        dates.push(new Date(year, shortDates[0].month - 1, shortDates[0].day));
-        dates.push(new Date(year, shortDates[1].month - 1, shortDates[1].day));
-      }
+    const first = parseInt(match[1]);
+    const second = parseInt(match[2]);
+    // 判断哪个是月份（必须在 1-12 范围内）
+    let month: number, day: number;
+    if (first >= 1 && first <= 12 && second >= 1 && second <= 31) {
+      // 格式为 MM-DD
+      month = first;
+      day = second;
+    } else if (second >= 1 && second <= 12 && first >= 1 && first <= 31) {
+      // 格式为 DD-MM
+      month = second;
+      day = first;
+    } else {
+      continue;
+    }
+    shortDates.push({ month, day, index: match.index });
+    // 如果有两个短日期，用当前年份创建完整日期
+    if (shortDates.length === 2) {
+      const year = dates.length > 0 ? dates[0].getFullYear() : currentYear;
+      dates.push(new Date(year, shortDates[0].month - 1, shortDates[0].day));
+      dates.push(new Date(year, shortDates[1].month - 1, shortDates[1].day));
     }
   }
 
@@ -113,6 +149,93 @@ function extractDates(filename: string): Date[] {
 export function smartExtractDateRange(filename: string): string | null {
   // 清理文件名（去除扩展名）
   const nameWithoutExt = filename.replace(/\.[^.]+$/, "");
+
+  // 0. 首先尝试匹配 DD_MM_YYYY 格式的区间
+  // 策略1：日期用 [_./] 分隔，区间用 [-~至到] 分隔（最明确）
+  const ddMmYyyyRangeMatch1 = nameWithoutExt.match(
+    /(\d{1,2})[_.](\d{1,2})[_.](\d{4})\s*[~-至到-]\s*(\d{1,2})[_.](\d{1,2})[_.](\d{4})/
+  );
+  if (ddMmYyyyRangeMatch1) {
+    const startDay = parseInt(ddMmYyyyRangeMatch1[1]);
+    const startMonth = parseInt(ddMmYyyyRangeMatch1[2]);
+    const startYear = parseInt(ddMmYyyyRangeMatch1[3]);
+    const endDay = parseInt(ddMmYyyyRangeMatch1[4]);
+    const endMonth = parseInt(ddMmYyyyRangeMatch1[5]);
+    const endYear = parseInt(ddMmYyyyRangeMatch1[6]);
+
+    if (
+      startMonth >= 1 && startMonth <= 12 && startDay >= 1 && startDay <= 31 &&
+      endMonth >= 1 && endMonth <= 12 && endDay >= 1 && endDay <= 31
+    ) {
+      const startDate = new Date(startYear, startMonth - 1, startDay);
+      const endDate = new Date(endYear, endMonth - 1, endDay);
+      return `${formatDate(startDate)}~${formatDate(endDate)}`;
+    }
+  }
+
+  // 策略2：日期用 [-] 分隔，区间用 [-] 分隔（Shopee 格式，如 14-04-2026-14-04-2026）
+  // 需要判断哪部分是日，哪部分是月
+  // 判断逻辑：如果第一个数字 >= 13，它更可能是日（因为月份最大是12）
+  const ddMmYyyyRangeMatch2 = nameWithoutExt.match(
+    /(\d{1,2})-(\d{1,2})-(\d{4})\s*-\s*(\d{1,2})-(\d{1,2})-(\d{4})/
+  );
+  if (ddMmYyyyRangeMatch2) {
+    const p1 = parseInt(ddMmYyyyRangeMatch2[1]);
+    const p2 = parseInt(ddMmYyyyRangeMatch2[2]);
+    const p3 = parseInt(ddMmYyyyRangeMatch2[3]); // year
+    const p4 = parseInt(ddMmYyyyRangeMatch2[4]);
+    const p5 = parseInt(ddMmYyyyRangeMatch2[5]);
+    const p6 = parseInt(ddMmYyyyRangeMatch2[6]); // year
+
+    // 判断第一个日期的日和月
+    let startDay = 0, startMonth = 0, startYear = 0;
+    if (p1 >= 13) {
+      // p1 是日，p2 是月
+      startDay = p1;
+      startMonth = p2;
+      startYear = p3;
+    } else if (p2 >= 13) {
+      // p2 是日，p1 是月
+      startDay = p2;
+      startMonth = p1;
+      startYear = p3;
+    } else if (p1 === 0 || p2 === 0) {
+      // 无效日期，跳过
+    } else {
+      // 无法判断，使用 p1 作为月（常见格式）
+      startMonth = p1;
+      startDay = p2;
+      startYear = p3;
+    }
+
+    // 判断第二个日期的日和月
+    let endDay = 0, endMonth = 0, endYear = 0;
+    if (p4 >= 13) {
+      endDay = p4;
+      endMonth = p5;
+      endYear = p6;
+    } else if (p5 >= 13) {
+      endDay = p5;
+      endMonth = p4;
+      endYear = p6;
+    } else if (p4 === 0 || p5 === 0) {
+      // 无效日期，跳过
+    } else {
+      // 无法判断，使用 p4 作为月
+      endMonth = p4;
+      endDay = p5;
+      endYear = p6;
+    }
+
+    if (
+      startMonth >= 1 && startMonth <= 12 && startDay >= 1 && startDay <= 31 &&
+      endMonth >= 1 && endMonth <= 12 && endDay >= 1 && endDay <= 31
+    ) {
+      const startDate = new Date(startYear, startMonth - 1, startDay);
+      const endDate = new Date(endYear, endMonth - 1, endDay);
+      return `${formatDate(startDate)}~${formatDate(endDate)}`;
+    }
+  }
 
   // 1. 首先尝试匹配已格式化的中文区间 (2024年01月01日~2024年01月07日)
   const chineseRangeMatch = nameWithoutExt.match(
