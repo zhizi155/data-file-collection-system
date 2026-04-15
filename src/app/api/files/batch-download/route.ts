@@ -59,11 +59,30 @@ export async function POST(request: NextRequest) {
     }
 
     // 创建ZIP文件
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 5 } });
 
     // 设置响应头
     const timestamp = new Date().toISOString().split("T")[0];
     const filename = `批量下载_${timestamp}.zip`;
+
+    // 创建一个 Promise 来等待 archive 完成
+    let archiveResolve: () => void;
+    let archiveReject: (err: Error) => void;
+    const archivePromise = new Promise<void>((resolve, reject) => {
+      archiveResolve = resolve;
+      archiveReject = reject;
+    });
+
+    // 先设置事件监听器，再进行其他操作
+    archive.on("close", () => {
+      console.log(`ZIP打包完成，总大小: ${archive.pointer()} bytes`);
+      archiveResolve!();
+    });
+
+    archive.on("error", (err) => {
+      console.error("ZIP打包错误:", err);
+      archiveReject(err);
+    });
 
     // 收集所有文件数据
     const filePromises = files.map(async (file) => {
@@ -80,6 +99,7 @@ export async function POST(request: NextRequest) {
         // 添加到ZIP，路径为：站点/平台/店铺名/文件名
         archive.append(fileBuffer, { name: `${dirPath}/${fileName}` });
 
+        console.log(`已添加文件到ZIP: ${dirPath}/${fileName}`);
         return { success: true, fileName, dirPath };
       } catch (err) {
         console.error(`处理文件 ${fileName} 失败:`, err);
@@ -87,39 +107,38 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    // 等待所有文件读取完成
     await Promise.all(filePromises);
 
     // 完成ZIP打包
     archive.finalize();
 
-    // 返回ZIP文件流
-    const chunks: Uint8Array[] = [];
+    // 等待 archive 完成
+    await archivePromise;
 
-    return new Response(
-      new ReadableStream({
-        async start(controller) {
-          archive.on("data", (chunk) => {
-            chunks.push(chunk);
-          });
+    // 创建流式响应
+    const stream = new ReadableStream({
+      start(controller) {
+        archive.on("data", (chunk: Buffer) => {
+          controller.enqueue(chunk);
+        });
 
-          archive.on("end", () => {
-            const buffer = Buffer.concat(chunks);
-            controller.enqueue(buffer);
-            controller.close();
-          });
+        archive.on("end", () => {
+          controller.close();
+        });
 
-          archive.on("error", (err) => {
-            controller.error(err);
-          });
-        },
-      }),
-      {
-        headers: {
-          "Content-Type": "application/zip",
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
-        },
-      }
-    );
+        archive.on("error", (err: Error) => {
+          controller.error(err);
+        });
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      },
+    });
   } catch (error) {
     console.error("批量下载失败:", error);
     return NextResponse.json(

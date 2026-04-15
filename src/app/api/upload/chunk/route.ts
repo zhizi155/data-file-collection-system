@@ -69,22 +69,24 @@ export async function POST(request: NextRequest) {
       const mergedBuffer = Buffer.concat(store.chunks);
       console.log(`合并完成，大小: ${mergedBuffer.length} bytes`);
       
-      // 流式上传到S3
+      // 流式上传到S3，使用传入的 objectKey 作为最终 key
       const readable = Readable.from(mergedBuffer);
-      const fileKey = await storage.streamUploadFile({
+      await storage.streamUploadFile({
         stream: readable,
         fileName: objectKey,
         contentType: "application/octet-stream",
       });
 
-      console.log(`文件上传成功: ${fileKey}`);
+      // 使用传入的 objectKey 作为最终的文件 key
+      const finalKey = objectKey;
+      console.log(`文件上传成功: ${finalKey}`);
 
       // 清理内存
       chunkStore.delete(chunkKey);
 
       return NextResponse.json({
         success: true,
-        fileKey,
+        fileKey: finalKey,
         message: "所有分片上传完成",
       });
     }

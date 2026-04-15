@@ -175,7 +175,8 @@ export async function POST(request: NextRequest) {
     // 应用命名规则（包含店铺和自定义变量）
     const newFileName = await applyNamingPattern(pattern, file.name, shopId || undefined, exportType || undefined);
 
-    let fileKey: string;
+    // 使用本地生成的 key（确保与存储路径一致）
+    const localFileKey = `uploads/${newFileName}`;
 
     // 对于大于10MB的文件使用流式上传，避免内存问题
     if (file.size > 10 * 1024 * 1024) {
@@ -185,21 +186,23 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(arrayBuffer);
       const readable = Readable.from(buffer);
 
-      fileKey = await storage.streamUploadFile({
+      await storage.streamUploadFile({
         stream: readable,
-        fileName: `uploads/${newFileName}`,
+        fileName: localFileKey,
         contentType: file.type || "application/octet-stream",
       });
     } else {
       // 小文件直接上传
       const buffer = Buffer.from(await file.arrayBuffer());
-      fileKey = await storage.uploadFile({
+      await storage.uploadFile({
         fileContent: buffer,
-        fileName: `uploads/${newFileName}`,
+        fileName: localFileKey,
         contentType: file.type || "application/octet-stream",
       });
     }
 
+    // 使用本地生成的 key 作为最终的文件 key
+    const fileKey = localFileKey;
     console.log(`文件上传成功: ${fileKey}`);
 
     // 记录到数据库
