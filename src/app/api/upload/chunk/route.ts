@@ -92,20 +92,28 @@ export async function POST(request: NextRequest) {
       
       // 流式上传到S3
       const readable = Readable.from(mergedBuffer);
-      await storage.streamUploadFile({
+      const uploadResult = await storage.streamUploadFile({
         stream: readable,
         fileName: objectKey,
         contentType: "application/octet-stream",
       });
 
+      console.log(`S3 上传结果: ${JSON.stringify(uploadResult)}`);
       console.log(`文件上传成功: ${objectKey}`);
 
       // 清理分片文件
       try {
         for (let i = 0; i < totalChunks; i++) {
-          unlinkSync(join(chunkDir, `chunk_${i}`));
+          const chunkPath = join(chunkDir, `chunk_${i}`);
+          if (existsSync(chunkPath)) {
+            unlinkSync(chunkPath);
+          }
         }
-        unlinkSync(chunkDir); // 删除目录
+        // 使用 rmdir 删除空目录
+        const { rmdirSync } = require('fs');
+        if (existsSync(chunkDir)) {
+          rmdirSync(chunkDir);
+        }
       } catch (e) {
         console.error("清理分片文件失败:", e);
       }
