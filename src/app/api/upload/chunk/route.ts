@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Storage } from "coze-coding-dev-sdk";
-import { Readable } from "stream";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync, rmdirSync } from "fs";
 import { join } from "path";
 
 const storage = new S3Storage({
@@ -89,17 +88,15 @@ export async function POST(request: NextRequest) {
       
       const mergedBuffer = Buffer.concat(chunks);
       console.log(`合并完成，大小: ${mergedBuffer.length} bytes`);
-      
-      // 流式上传到S3
-      const readable = Readable.from(mergedBuffer);
-      const uploadResult = await storage.streamUploadFile({
-        stream: readable,
+
+      // 使用 uploadFile 上传到 S3（而不是 streamUploadFile）
+      const fileKey = await storage.uploadFile({
+        fileContent: mergedBuffer,
         fileName: objectKey,
         contentType: "application/octet-stream",
       });
 
-      console.log(`S3 上传结果: ${JSON.stringify(uploadResult)}`);
-      console.log(`文件上传成功: ${objectKey}`);
+      console.log(`文件上传成功: ${fileKey}`);
 
       // 清理分片文件
       try {
@@ -109,8 +106,6 @@ export async function POST(request: NextRequest) {
             unlinkSync(chunkPath);
           }
         }
-        // 使用 rmdir 删除空目录
-        const { rmdirSync } = require('fs');
         if (existsSync(chunkDir)) {
           rmdirSync(chunkDir);
         }
@@ -120,7 +115,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        fileKey: objectKey,
+        fileKey: fileKey,
         message: "所有分片上传完成",
       });
     }

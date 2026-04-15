@@ -25,8 +25,8 @@ interface UploadResult {
 }
 
 // 大文件阈值（使用分片上传的文件大小阈值）
-// 网关限制约10MB，因此超过此值就使用分片上传
-const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+// 文件超过此大小将使用分片上传（单片4MB）
+const LARGE_FILE_THRESHOLD = 16 * 1024 * 1024; // 16MB
 
 // 推荐的压缩工具
 const COMPRESSION_TIPS = "建议将文件压缩后再上传。可使用 7-Zip、WinRAR 等工具压缩，或使用 ZIP 格式打包。";
@@ -187,8 +187,8 @@ export default function UploadPage() {
   const uploadLargeFile = async () => {
     if (!file) return;
     
-    // 使用1MB分片，确保能通过网关（约10MB限制）
-    const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB per chunk
+    // 使用4MB分片
+    const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB per chunk
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
     // 1. 获取对象key
