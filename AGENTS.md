@@ -89,7 +89,7 @@
 | `{自定义变量}` | 自定义变量（在管理后台添加） | 如 `{部门}`、`{项目}` |
 
 ### 数据库表
-- `naming_rules` - 命名规则配置表
+- `naming_rules` - 命名规则配置表（支持按导出类型关联）
 - `uploaded_files` - 上传文件记录表
 - `shops` - 店铺列表表（支持从 Excel 导入）
 - `custom_variables` - 自定义变量表

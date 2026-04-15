@@ -27,7 +27,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, pattern, description } = body;
+    const { name, pattern, description, export_type } = body;
 
     if (!name || !pattern) {
       return NextResponse.json({ error: "缺少必要参数" }, { status: 400 });
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
         name,
         pattern,
         description: description || null,
+        export_type: export_type || null,
         is_active: true,
       })
       .select()
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, name, pattern, description, is_active } = body;
+    const { id, name, pattern, description, is_active, export_type } = body;
 
     if (!id) {
       return NextResponse.json({ error: "缺少规则ID" }, { status: 400 });
@@ -73,6 +74,7 @@ export async function PUT(request: NextRequest) {
     if (pattern !== undefined) updates.pattern = pattern;
     if (description !== undefined) updates.description = description;
     if (is_active !== undefined) updates.is_active = is_active;
+    if (export_type !== undefined) updates.export_type = export_type;
     updates.updated_at = new Date().toISOString();
 
     const supabase = getSupabaseClient();

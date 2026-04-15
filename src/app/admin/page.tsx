@@ -61,6 +61,7 @@ interface NamingRule {
   pattern: string;
   description: string | null;
   is_active: boolean;
+  export_type: string | null; // 关联的导出类型，null表示通用规则
   created_at: string;
   updated_at: string | null;
 }
@@ -121,10 +122,11 @@ export default function AdminPage() {
   // 规则模态框状态
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<NamingRule | null>(null);
-  const [ruleForm, setRuleForm] = useState({ name: "", pattern: "", description: "" });
+  const [ruleForm, setRuleForm] = useState({ name: "", pattern: "", description: "", export_type: "" });
   const [ruleSaving, setRuleSaving] = useState(false);
   const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
   const [ruleDeleting, setRuleDeleting] = useState(false);
+  const [availableExportTypes, setAvailableExportTypes] = useState<string[]>([]); // 可用的导出类型列表
 
   // 店铺模态框状态
   const [shopModalOpen, setShopModalOpen] = useState(false);
@@ -167,7 +169,16 @@ export default function AdminPage() {
       ]);
 
       if (rulesData.success) setRules(rulesData.data);
-      if (shopsData.success) setShops(shopsData.data);
+      if (shopsData.success) {
+        setShops(shopsData.data);
+        // 提取所有不重复的导出类型
+        const exportTypes = [...new Set(
+          shopsData.data
+            .map((s: Shop) => s.export_type)
+            .filter((t: string | null) => t)
+        )] as string[];
+        setAvailableExportTypes(exportTypes);
+      }
       if (varsData.success) setVariables(varsData.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
@@ -395,10 +406,10 @@ export default function AdminPage() {
   const openRuleModal = (rule?: NamingRule) => {
     if (rule) {
       setEditingRule(rule);
-      setRuleForm({ name: rule.name, pattern: rule.pattern, description: rule.description || "" });
+      setRuleForm({ name: rule.name, pattern: rule.pattern, description: rule.description || "", export_type: rule.export_type || "" });
     } else {
       setEditingRule(null);
-      setRuleForm({ name: "", pattern: "{original}", description: "" });
+      setRuleForm({ name: "", pattern: "{original}", description: "", export_type: "" });
     }
     setRuleModalOpen(true);
   };
@@ -413,7 +424,11 @@ export default function AdminPage() {
     try {
       const url = editingRule ? "/api/rules" : "/api/rules";
       const method = editingRule ? "PUT" : "POST";
-      const body = editingRule ? { id: editingRule.id, ...ruleForm } : ruleForm;
+      // 将空字符串转为 null
+      const body = {
+        ...ruleForm,
+        export_type: ruleForm.export_type || null,
+      };
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (data.success) {
@@ -935,7 +950,22 @@ export default function AdminPage() {
                       <div className="space-y-4 py-4">
                         <div className="space-y-2">
                           <Label htmlFor="ruleName">规则名称</Label>
-                          <Input id="ruleName" value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder="例如: 日期-时间格式" />
+                          <Input id="ruleName" value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder="例如: 素材文件命名" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="ruleExportType">关联的文件保存类型</Label>
+                          <select
+                            id="ruleExportType"
+                            value={ruleForm.export_type}
+                            onChange={(e) => setRuleForm({ ...ruleForm, export_type: e.target.value })}
+                            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="">-- 通用规则（所有类型可用）--</option>
+                            {availableExportTypes.map((type) => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-slate-500">选择该规则关联的保存类型。不选则为通用规则。</p>
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="rulePattern">命名模式</Label>
@@ -965,8 +995,8 @@ export default function AdminPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>规则名称</TableHead>
+                        <TableHead>关联类型</TableHead>
                         <TableHead>命名模式</TableHead>
-                        <TableHead>描述</TableHead>
                         <TableHead>状态</TableHead>
                         <TableHead>创建时间</TableHead>
                         <TableHead className="text-right">操作</TableHead>
@@ -976,8 +1006,14 @@ export default function AdminPage() {
                       {rules.map((rule) => (
                         <TableRow key={rule.id}>
                           <TableCell className="font-medium">{rule.name}</TableCell>
+                          <TableCell>
+                            {rule.export_type ? (
+                              <Badge variant="outline">{rule.export_type}</Badge>
+                            ) : (
+                              <span className="text-slate-400 text-sm">通用规则</span>
+                            )}
+                          </TableCell>
                           <TableCell className="font-mono text-sm">{rule.pattern}</TableCell>
-                          <TableCell className="text-slate-500">{rule.description || "-"}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Switch checked={rule.is_active} onCheckedChange={() => handleToggleRule(rule)} />

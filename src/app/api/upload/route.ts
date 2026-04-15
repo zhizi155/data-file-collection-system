@@ -104,6 +104,7 @@ export async function POST(request: NextRequest) {
     let pattern = "{original}";
 
     if (ruleId) {
+      // 如果指定了规则ID，使用指定规则
       const { data: rule, error } = await supabase
         .from("naming_rules")
         .select("pattern")
@@ -118,11 +119,40 @@ export async function POST(request: NextRequest) {
       if (rule) {
         pattern = rule.pattern;
       }
+    } else if (exportType) {
+      // 如果指定了 exportType，优先查找匹配的规则
+      const { data: rule, error } = await supabase
+        .from("naming_rules")
+        .select("pattern")
+        .eq("export_type", exportType)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json({ error: `查询命名规则失败: ${error.message}` }, { status: 500 });
+      }
+
+      if (rule) {
+        pattern = rule.pattern;
+      } else {
+        // 没有找到匹配的规则，使用通用规则
+        const { data: rules, error } = await supabase
+          .from("naming_rules")
+          .select("pattern")
+          .is("export_type", null)
+          .eq("is_active", true)
+          .limit(1);
+
+        if (!error && rules && rules.length > 0) {
+          pattern = rules[0].pattern;
+        }
+      }
     } else {
-      // 获取默认命名规则
+      // 没有指定规则和类型，使用通用规则
       const { data: rules, error } = await supabase
         .from("naming_rules")
         .select("id, pattern")
+        .is("export_type", null)
         .eq("is_active", true)
         .order("created_at")
         .limit(1);

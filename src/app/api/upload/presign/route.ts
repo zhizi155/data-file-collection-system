@@ -33,16 +33,44 @@ async function getNamingPattern(
   const supabase = getSupabaseClient();
   let pattern = "{original}";
 
-  // 获取默认命名规则
-  const { data: rules } = await supabase
-    .from("naming_rules")
-    .select("pattern")
-    .eq("is_active", true)
-    .order("created_at")
-    .limit(1);
+  // 根据 exportType 查找对应规则
+  if (exportType) {
+    // 优先查找匹配的规则
+    const { data: rule } = await supabase
+      .from("naming_rules")
+      .select("pattern")
+      .eq("export_type", exportType)
+      .eq("is_active", true)
+      .maybeSingle();
 
-  if (rules && rules.length > 0) {
-    pattern = rules[0].pattern;
+    if (rule) {
+      pattern = rule.pattern;
+    } else {
+      // 没有匹配的，使用通用规则
+      const { data: rules } = await supabase
+        .from("naming_rules")
+        .select("pattern")
+        .is("export_type", null)
+        .eq("is_active", true)
+        .limit(1);
+
+      if (rules && rules.length > 0) {
+        pattern = rules[0].pattern;
+      }
+    }
+  } else {
+    // 没有指定类型，使用通用规则
+    const { data: rules } = await supabase
+      .from("naming_rules")
+      .select("pattern")
+      .is("export_type", null)
+      .eq("is_active", true)
+      .order("created_at")
+      .limit(1);
+
+    if (rules && rules.length > 0) {
+      pattern = rules[0].pattern;
+    }
   }
 
   const now = new Date();
