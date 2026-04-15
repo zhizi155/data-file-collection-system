@@ -35,27 +35,33 @@ async function getNamingPattern(
 
   // 根据 exportType 查找对应规则
   if (exportType) {
-    // 优先查找匹配的规则
-    const { data: rule } = await supabase
+    // 优先查找匹配的规则（检查是否包含该类型）
+    const { data: rules } = await supabase
       .from("naming_rules")
-      .select("pattern")
-      .eq("export_type", exportType)
+      .select("pattern, export_type")
       .eq("is_active", true)
-      .maybeSingle();
+      .not("export_type", "is", null);
 
-    if (rule) {
-      pattern = rule.pattern;
+    // 找到 export_type 包含当前类型的规则
+    const matchedRule = rules?.find(r => {
+      if (!r.export_type) return false;
+      const types = r.export_type.split(",").map(t => t.trim());
+      return types.includes(exportType);
+    });
+
+    if (matchedRule) {
+      pattern = matchedRule.pattern;
     } else {
       // 没有匹配的，使用通用规则
-      const { data: rules } = await supabase
+      const { data: genericRules } = await supabase
         .from("naming_rules")
         .select("pattern")
         .is("export_type", null)
         .eq("is_active", true)
         .limit(1);
 
-      if (rules && rules.length > 0) {
-        pattern = rules[0].pattern;
+      if (genericRules && genericRules.length > 0) {
+        pattern = genericRules[0].pattern;
       }
     }
   } else {

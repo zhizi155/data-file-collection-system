@@ -120,31 +120,37 @@ export async function POST(request: NextRequest) {
         pattern = rule.pattern;
       }
     } else if (exportType) {
-      // 如果指定了 exportType，优先查找匹配的规则
-      const { data: rule, error } = await supabase
+      // 如果指定了 exportType，优先查找匹配的规则（检查是否包含该类型）
+      const { data: rules, error } = await supabase
         .from("naming_rules")
-        .select("pattern")
-        .eq("export_type", exportType)
+        .select("pattern, export_type")
         .eq("is_active", true)
-        .maybeSingle();
+        .not("export_type", "is", null);
 
       if (error) {
         return NextResponse.json({ error: `查询命名规则失败: ${error.message}` }, { status: 500 });
       }
 
-      if (rule) {
-        pattern = rule.pattern;
+      // 找到 export_type 包含当前类型的规则
+      const matchedRule = rules?.find(r => {
+        if (!r.export_type) return false;
+        const types = r.export_type.split(",").map(t => t.trim());
+        return types.includes(exportType);
+      });
+
+      if (matchedRule) {
+        pattern = matchedRule.pattern;
       } else {
         // 没有找到匹配的规则，使用通用规则
-        const { data: rules, error } = await supabase
+        const { data: genericRules, error } = await supabase
           .from("naming_rules")
           .select("pattern")
           .is("export_type", null)
           .eq("is_active", true)
           .limit(1);
 
-        if (!error && rules && rules.length > 0) {
-          pattern = rules[0].pattern;
+        if (!error && genericRules && genericRules.length > 0) {
+          pattern = genericRules[0].pattern;
         }
       }
     } else {
