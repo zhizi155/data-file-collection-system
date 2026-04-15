@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import archiver from "archiver";
+import { PassThrough } from "stream";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -58,34 +59,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 创建ZIP文件
-    const archive = archiver("zip", { zlib: { level: 5 } });
-
     // 设置响应头
     const timestamp = new Date().toISOString().split("T")[0];
     const filename = `批量下载_${timestamp}.zip`;
 
-    // 创建一个 Promise 来等待 archive 完成
-    let archiveResolve: () => void;
-    let archiveReject: (err: Error) => void;
-    const archivePromise = new Promise<void>((resolve, reject) => {
-      archiveResolve = resolve;
-      archiveReject = reject;
-    });
+    // 创建 PassThrough 流用于输出
+    const passThrough = new PassThrough();
 
-    // 先设置事件监听器，再进行其他操作
-    archive.on("close", () => {
-      console.log(`ZIP打包完成，总大小: ${archive.pointer()} bytes`);
-      archiveResolve!();
-    });
+    // 创建 ZIP 打包器
+    const archive = archiver("zip", { zlib: { level: 5 } });
 
-    archive.on("error", (err) => {
-      console.error("ZIP打包错误:", err);
-      archiveReject(err);
-    });
+    // 管道连接：archive -> passThrough -> 响应
+    archive.pipe(passThrough);
 
-    // 收集所有文件数据
-    const filePromises = files.map(async (file) => {
+    // 逐个添加文件到 ZIP（使用 async iterator 模式）
+    let fileCount = 0;
+    let successCount = 0;
+
+    for (const file of files) {
+      fileCount++;
       const shop = file.shop_id ? shopsMap[file.shop_id] : null;
       const fileName = file.stored_key.split("/").pop() || file.stored_key;
 
@@ -96,47 +88,27 @@ export async function POST(request: NextRequest) {
         // 从存储获取文件内容
         const fileBuffer = await storage.readFile({ fileKey: file.stored_key });
 
-        // 添加到ZIP，路径为：站点/平台/店铺名/文件名
+        // 添加到 ZIP
         archive.append(fileBuffer, { name: `${dirPath}/${fileName}` });
-
-        console.log(`已添加文件到ZIP: ${dirPath}/${fileName}`);
-        return { success: true, fileName, dirPath };
+        successCount++;
+        console.log(`已添加文件 ${fileCount}/${files.length}: ${dirPath}/${fileName}`);
       } catch (err) {
         console.error(`处理文件 ${fileName} 失败:`, err);
-        return { success: false, fileName, dirPath };
+        // 即使失败也继续处理其他文件
       }
-    });
+    }
 
-    // 等待所有文件读取完成
-    await Promise.all(filePromises);
+    console.log(`文件添加完成，成功 ${successCount}/${files.length}，开始打包...`);
 
-    // 完成ZIP打包
+    // 完成打包
     archive.finalize();
 
-    // 等待 archive 完成
-    await archivePromise;
-
-    // 创建流式响应
-    const stream = new ReadableStream({
-      start(controller) {
-        archive.on("data", (chunk: Buffer) => {
-          controller.enqueue(chunk);
-        });
-
-        archive.on("end", () => {
-          controller.close();
-        });
-
-        archive.on("error", (err: Error) => {
-          controller.error(err);
-        });
-      },
-    });
-
-    return new Response(stream, {
+    // 返回流式响应
+    return new Response(passThrough as unknown as ReadableStream, {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "Transfer-Encoding": "chunked",
       },
     });
   } catch (error) {
