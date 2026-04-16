@@ -332,7 +332,7 @@ export default function UploadPage() {
               >
                 {shops.map((shop) => (
                   <SearchSelectItem key={shop.id} value={shop.id}>
-                    {shop.name} ({shop.site}-{shop.platform}){shop.export_type ? ` [${shop.export_type}]` : ""}{shop.manager ? ` 负责人:${shop.manager}` : ""}
+                    {shop.name}
                   </SearchSelectItem>
                 ))}
               </SearchSelect>
