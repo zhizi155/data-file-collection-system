@@ -17,18 +17,23 @@ export async function GET(request: NextRequest) {
 
     // 先获取需要筛选的店铺ID列表
     let filterShopIds: string[] | null = null;
-    if (platform || site) {
+    // 解析逗号分隔的多选值
+    const shopIdList = shopId ? shopId.split(",").filter(Boolean) : [];
+    const platformList = platform ? platform.split(",").filter(Boolean) : [];
+    const siteList = site ? site.split(",").filter(Boolean) : [];
+    
+    if (platformList.length > 0 || siteList.length > 0) {
       let shopQuery = supabase.from("shops").select("id");
-      if (platform && platform !== "all") {
-        shopQuery = shopQuery.eq("platform", platform);
+      if (platformList.length > 0) {
+        shopQuery = shopQuery.in("platform", platformList);
       }
-      if (site && site !== "all") {
-        shopQuery = shopQuery.eq("site", site);
+      if (siteList.length > 0) {
+        shopQuery = shopQuery.in("site", siteList);
       }
       const { data: filteredShops } = await shopQuery;
       if (filteredShops && filteredShops.length > 0) {
         filterShopIds = filteredShops.map((s) => s.id);
-      } else if (platform || site) {
+      } else if (platformList.length > 0 || siteList.length > 0) {
         // 如果有筛选条件但没找到店铺，返回空结果
         return NextResponse.json({
           success: true,
@@ -44,8 +49,8 @@ export async function GET(request: NextRequest) {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (shopId) {
-      query = query.eq("shop_id", shopId);
+    if (shopIdList.length > 0) {
+      query = query.in("shop_id", shopIdList);
     } else if (filterShopIds && filterShopIds.length > 0) {
       query = query.in("shop_id", filterShopIds);
     }
@@ -55,8 +60,8 @@ export async function GET(request: NextRequest) {
       .from("uploaded_files")
       .select("*", { count: "exact", head: true });
 
-    if (shopId) {
-      countQuery = countQuery.eq("shop_id", shopId);
+    if (shopIdList.length > 0) {
+      countQuery = countQuery.in("shop_id", shopIdList);
     } else if (filterShopIds && filterShopIds.length > 0) {
       countQuery = countQuery.in("shop_id", filterShopIds);
     }
@@ -117,8 +122,8 @@ export async function GET(request: NextRequest) {
         .from("uploaded_files")
         .select("original_name", { count: "exact", head: true });
 
-      if (shopId) {
-        allQuery = allQuery.eq("shop_id", shopId);
+      if (shopIdList.length > 0) {
+        allQuery = allQuery.in("shop_id", shopIdList);
       } else if (filterShopIds && filterShopIds.length > 0) {
         allQuery = allQuery.in("shop_id", filterShopIds);
       }
