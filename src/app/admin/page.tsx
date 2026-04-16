@@ -55,6 +55,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { SearchSelect, SearchSelectItem } from "@/components/ui/search-select";
+import { useAuth } from "@/hooks/useAuth";
 
 interface NamingRule {
   id: string;
@@ -109,6 +110,7 @@ interface UploadedFile {
 
 export default function AdminPage() {
   const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
   const [rules, setRules] = useState<NamingRule[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
   const [variables, setVariables] = useState<CustomVariable[]>([]);
@@ -126,6 +128,13 @@ export default function AdminPage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<string>("");
+
+  // 登录检查
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace("/admin/login");
+    }
+  }, [isLoading, isAuthenticated, router]);
 
   // 规则模态框状态
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
