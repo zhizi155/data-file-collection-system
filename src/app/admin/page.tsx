@@ -632,31 +632,6 @@ export default function AdminPage() {
     }
   };
 
-  // 删除筛选结果（删除未选中站点的店铺）
-  const handleDeleteFilteredShops = async () => {
-    if (shopFilterSite.length === 0) return;
-    const filteredOutShops = shops.filter((s) => !shopFilterSite.includes(s.site));
-    if (filteredOutShops.length === 0) {
-      setError("没有需要删除的店铺");
-      return;
-    }
-    if (!confirm(`确定要删除 ${filteredOutShops.length} 个未选中站点的店铺吗？此操作不可撤销。`)) return;
-    
-    setShopDeleting(true);
-    try {
-      // 逐个删除
-      for (const shop of filteredOutShops) {
-        await fetch(`/api/shops?id=${shop.id}`, { method: "DELETE" });
-      }
-      setShopFilterSite([]);
-      loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败");
-    } finally {
-      setShopDeleting(false);
-    }
-  };
-
   // ========== 自定义变量操作 ==========
   const openVarModal = (v?: CustomVariable) => {
     if (v) {
@@ -1294,33 +1269,15 @@ export default function AdminPage() {
                         <SearchSelectItem key={site} value={site}>{site}</SearchSelectItem>
                       ))}
                     </SearchSelect>
-                    {shopFilterSite.length > 0 && (() => {
-                      const filteredCount = shops.filter((s) => shopFilterSite.includes(s.site)).length;
-                      const unfilteredCount = shops.filter((s) => !shopFilterSite.includes(s.site)).length;
-                      return (
-                        <>
-                          <span className="text-sm font-medium text-blue-600">
-                            {filteredCount} 条结果
-                          </span>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={handleDeleteFilteredShops}
-                            disabled={shopDeleting || unfilteredCount === 0}
-                          >
-                            <Trash2 className="w-4 h-4 mr-1" />
-                            删除未选中 ({unfilteredCount})
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShopFilterSite([])}
-                          >
-                            取消筛选
-                          </Button>
-                        </>
-                      );
-                    })()}
+                    {shopFilterSite.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShopFilterSite([])}
+                      >
+                        清除筛选
+                      </Button>
+                    )}
                   </div>
                 )}
                 {loading ? (
