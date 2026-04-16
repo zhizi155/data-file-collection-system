@@ -1,47 +1,56 @@
-"use client";
+"use client"
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Lock, User, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { isLoggedIn } from "@/hooks/useAuth";
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { Lock, User, AlertCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { isLoggedIn } from "@/hooks/useAuth"
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const router = useRouter()
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
 
   // 检查是否已登录
   useEffect(() => {
     if (isLoggedIn()) {
-      router.replace("/admin");
+      router.replace("/admin")
     }
-  }, [router]);
+  }, [router])
 
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
+    e.preventDefault()
+    setError("")
+    setLoading(true)
 
-    // 简单的客户端验证（生产环境应该用服务端验证）
-    if (username === "admin" && password === "admin") {
-      // 生成 token
-      const token = `admin_token_${Date.now()}_${Math.random().toString(36).substring(2)}`
-      localStorage.setItem("admin_auth_token", token)
-      localStorage.setItem("admin_auth_time", new Date().toISOString())
-      router.push("/admin");
-    } else {
-      setError("用户名或密码错误");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        setError(data.error || "登录失败")
+        setLoading(false)
+        return
+      }
+
+      // 登录成功，跳转
+      router.push("/admin")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "登录失败")
+      setLoading(false)
     }
-
-    setLoading(false);
-  };
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center p-4">
@@ -111,5 +120,5 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
-  );
+  )
 }

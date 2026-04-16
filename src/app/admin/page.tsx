@@ -158,25 +158,62 @@ export default function AdminPage() {
   const [deleteVarId, setDeleteVarId] = useState<string | null>(null);
   const [varDeleting, setVarDeleting] = useState(false);
 
+  // 账号管理状态
+  const [accounts, setAccounts] = useState<Array<{
+    id: string;
+    username: string;
+    role: string;
+    display_name: string | null;
+    is_active: boolean;
+    last_login_at: string | null;
+    login_count: number;
+    created_at: string;
+  }>>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<any>(null);
+  const [accountForm, setAccountForm] = useState({ username: "", password: "", display_name: "" });
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [deleteAccountId, setDeleteAccountId] = useState<string | null>(null);
+  const [accountDeleting, setAccountDeleting] = useState(false);
+
+  // 用户角色信息
+  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; role: string; display_name: string } | null>(null);
+  const isMainAccount = currentUser?.role === "main";
+  const isSubAccount = currentUser?.role === "sub";
+
   // 检查登录状态
   useEffect(() => {
     // 延迟检查，确保客户端已加载
     const checkLogin = () => {
       const loggedIn = localStorage.getItem("admin_auth_token");
       const loginTime = localStorage.getItem("admin_auth_time");
-      
+      const userStr = localStorage.getItem("admin_auth_user");
+
       if (!loggedIn || !loginTime) {
         router.push("/admin/login");
         return;
       }
-      
+
       // 检查是否过期（7天）
       const elapsed = Date.now() - new Date(loginTime).getTime();
       const AUTH_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
       if (elapsed > AUTH_TIMEOUT) {
         localStorage.removeItem("admin_auth_token");
         localStorage.removeItem("admin_auth_time");
+        localStorage.removeItem("admin_auth_user");
         router.push("/admin/login");
+        return;
+      }
+
+      // 解析用户信息
+      if (userStr) {
+        try {
+          const userInfo = JSON.parse(userStr);
+          setCurrentUser(userInfo);
+        } catch (e) {
+          console.error("解析用户信息失败", e);
+        }
       }
     };
 
@@ -216,6 +253,119 @@ export default function AdminPage() {
       setLoading(false);
     }
   }, []);
+
+  // 加载账号列表
+  const loadAccounts = useCallback(async () => {
+    setLoadingAccounts(true);
+    try {
+      const res = await fetch("/api/admin-users");
+      const data = await res.json();
+      if (data.success) {
+        setAccounts(data.data);
+      }
+    } catch (err) {
+      console.error("加载账号失败:", err);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isMainAccount && activeTab === "accounts") {
+      loadAccounts();
+    }
+  }, [activeTab, isMainAccount, loadAccounts]);
+
+  // 账号相关操作
+  const openAccountModal = (account?: any) => {
+    if (account) {
+      setEditingAccount(account);
+      setAccountForm({
+        username: account.username,
+        password: "",
+        display_name: account.display_name || "",
+      });
+    } else {
+      setEditingAccount(null);
+      setAccountForm({ username: "", password: "", display_name: "" });
+    }
+    setAccountModalOpen(true);
+  };
+
+  const handleSaveAccount = async () => {
+    if (!accountForm.username) {
+      setError("用户名不能为空");
+      return;
+    }
+    if (!editingAccount && !accountForm.password) {
+      setError("密码不能为空");
+      return;
+    }
+
+    setAccountSaving(true);
+    try {
+      const url = "/api/admin-users";
+      const method = editingAccount ? "PUT" : "POST";
+      const body = editingAccount
+        ? { id: editingAccount.id, display_name: accountForm.display_name, password: accountForm.password || undefined }
+        : { username: accountForm.username, password: accountForm.password, display_name: accountForm.display_name, role: "sub" };
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setAccountModalOpen(false);
+        loadAccounts();
+      } else {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const handleToggleAccount = async (account: any) => {
+    try {
+      const res = await fetch("/api/admin-users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: account.id, is_active: !account.is_active }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        loadAccounts();
+      } else {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新失败");
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteAccountId) return;
+    setAccountDeleting(true);
+    try {
+      const res = await fetch(`/api/admin-users?id=${deleteAccountId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        setDeleteAccountId(null);
+        loadAccounts();
+      } else {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setAccountDeleting(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -745,6 +895,7 @@ export default function AdminPage() {
   const handleLogout = () => {
     localStorage.removeItem("admin_auth_token");
     localStorage.removeItem("admin_auth_time");
+    localStorage.removeItem("admin_auth_user");
     router.push("/admin/login");
   };
 
@@ -799,7 +950,7 @@ export default function AdminPage() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5 mb-6">
+          <TabsList className={`grid w-full ${isMainAccount ? "grid-cols-6" : "grid-cols-2"} mb-6`}>
             <TabsTrigger value="files" className="gap-2">
               <File className="w-4 h-4" />
               上传记录
@@ -809,20 +960,28 @@ export default function AdminPage() {
               <File className="w-4 h-4" />
               收集进度
             </TabsTrigger>
-            <TabsTrigger value="rules" className="gap-2">
-              <FileText className="w-4 h-4" />
-              命名规则
-            </TabsTrigger>
-            <TabsTrigger value="shops" className="gap-2">
-              <ShoppingBag className="w-4 h-4" />
-              店铺列表
-              {shops.length > 0 && <Badge variant="secondary" className="ml-1">{shops.length}</Badge>}
-            </TabsTrigger>
-            <TabsTrigger value="variables" className="gap-2">
-              <Variable className="w-4 h-4" />
-              自定义变量
-              {variables.length > 0 && <Badge variant="secondary" className="ml-1">{variables.length}</Badge>}
-            </TabsTrigger>
+            {isMainAccount && (
+              <>
+                <TabsTrigger value="rules" className="gap-2">
+                  <FileText className="w-4 h-4" />
+                  命名规则
+                </TabsTrigger>
+                <TabsTrigger value="shops" className="gap-2">
+                  <ShoppingBag className="w-4 h-4" />
+                  店铺列表
+                  {shops.length > 0 && <Badge variant="secondary" className="ml-1">{shops.length}</Badge>}
+                </TabsTrigger>
+                <TabsTrigger value="variables" className="gap-2">
+                  <Variable className="w-4 h-4" />
+                  自定义变量
+                  {variables.length > 0 && <Badge variant="secondary" className="ml-1">{variables.length}</Badge>}
+                </TabsTrigger>
+                <TabsTrigger value="accounts" className="gap-2">
+                  <Settings className="w-4 h-4" />
+                  账号管理
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
 
           {/* 上传记录 */}
@@ -894,41 +1053,46 @@ export default function AdminPage() {
                         </SearchSelectItem>
                       ))}
                     </SearchSelect>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={exportSelectedFiles}
-                      disabled={selectedFiles.size === 0}
-                      className="gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      导出上传记录 ({selectedFiles.size})
+                    {/* 主账号可见的操作按钮 */}
+                    {isMainAccount && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={exportSelectedFiles}
+                          disabled={selectedFiles.size === 0}
+                          className="gap-2"
+                        >
+                          <Download className="w-4 h-4" />
+                          导出上传记录 ({selectedFiles.size})
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={batchDownloadFiles}
+                          disabled={selectedFiles.size === 0 || downloading}
+                          className="gap-2"
+                        >
+                          {downloading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <FolderDown className="w-4 h-4" />
+                          )}
+                          {downloading ? "下载中..." : "批量下载"}
+                          {selectedFiles.size > 0 && !downloading && ` (${selectedFiles.size})`}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={batchDeleteFiles}
+                          disabled={selectedFiles.size === 0 || downloading}
+                          className="gap-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          批量删除 {selectedFiles.size > 0 && `(${selectedFiles.size})`}
                     </Button>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={batchDownloadFiles}
-                      disabled={selectedFiles.size === 0 || downloading}
-                      className="gap-2"
-                    >
-                      {downloading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <FolderDown className="w-4 h-4" />
-                      )}
-                      {downloading ? "下载中..." : "批量下载"}
-                      {selectedFiles.size > 0 && !downloading && ` (${selectedFiles.size})`}
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={batchDeleteFiles}
-                      disabled={selectedFiles.size === 0 || downloading}
-                      className="gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      批量删除 {selectedFiles.size > 0 && `(${selectedFiles.size})`}
-                    </Button>
+                      </>
+                    )}
                   </div>
                 </div>
                 {/* 下载进度显示 */}
@@ -1019,32 +1183,39 @@ export default function AdminPage() {
                             <TableCell className="text-slate-500 text-sm">{formatDate(file.created_at)}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => window.open(`/api/files/download?key=${encodeURIComponent(file.stored_key)}`, "_blank")}
-                                      className="text-blue-500"
-                                    >
-                                      <LinkIcon className="w-4 h-4" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>查看文件</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => handleDeleteFileRecord(file.id)}
-                                      className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>删除记录</TooltipContent>
-                                </Tooltip>
+                                {isMainAccount && (
+                                  <>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => window.open(`/api/files/download?key=${encodeURIComponent(file.stored_key)}`, "_blank")}
+                                          className="text-blue-500"
+                                        >
+                                          <LinkIcon className="w-4 h-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>查看文件</TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => handleDeleteFileRecord(file.id)}
+                                          className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>删除记录</TooltipContent>
+                                    </Tooltip>
+                                  </>
+                                )}
+                                {isSubAccount && (
+                                  <span className="text-xs text-slate-400">仅查看</span>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1563,6 +1734,150 @@ export default function AdminPage() {
                                   </DialogFooter>
                                 </DialogContent>
                               </Dialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 账号管理（仅主账号可见） */}
+          <TabsContent value="accounts">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Settings className="w-5 h-5" />
+                      账号管理
+                    </CardTitle>
+                    <CardDescription>管理系统账号，主账号可创建子账号</CardDescription>
+                  </div>
+                  <Dialog open={accountModalOpen} onOpenChange={setAccountModalOpen}>
+                    <DialogTrigger asChild>
+                      <Button onClick={() => openAccountModal()}><Plus className="w-4 h-4 mr-2" />新增账号</Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>{editingAccount ? "编辑账号" : "新增子账号"}</DialogTitle>
+                        <DialogDescription>
+                          {editingAccount ? "修改账号信息" : "创建一个新的子账号，子账号仅能查看上传记录和收集进度"}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="accountUsername">用户名</Label>
+                          <Input
+                            id="accountUsername"
+                            value={accountForm.username}
+                            onChange={(e) => setAccountForm({ ...accountForm, username: e.target.value })}
+                            placeholder="请输入用户名"
+                            disabled={!!editingAccount}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="accountPassword">{editingAccount ? "新密码（留空不修改）" : "密码"}</Label>
+                          <Input
+                            id="accountPassword"
+                            type="password"
+                            value={accountForm.password}
+                            onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
+                            placeholder={editingAccount ? "留空则不修改密码" : "请输入密码（至少4位）"}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="accountDisplayName">显示名称</Label>
+                          <Input
+                            id="accountDisplayName"
+                            value={accountForm.display_name}
+                            onChange={(e) => setAccountForm({ ...accountForm, display_name: e.target.value })}
+                            placeholder="请输入显示名称"
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setAccountModalOpen(false)}>取消</Button>
+                        <Button onClick={handleSaveAccount} disabled={accountSaving}>{accountSaving ? "保存中..." : "保存"}</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingAccounts ? (
+                  <div className="text-center py-8 text-slate-500">加载中...</div>
+                ) : accounts.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">暂无子账号，点击上方按钮添加</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>用户名</TableHead>
+                        <TableHead>显示名称</TableHead>
+                        <TableHead>角色</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead>最后登录</TableHead>
+                        <TableHead>登录次数</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {accounts.map((account) => (
+                        <TableRow key={account.id}>
+                          <TableCell className="font-medium">{account.username}</TableCell>
+                          <TableCell>{account.display_name || "-"}</TableCell>
+                          <TableCell>
+                            <Badge variant={account.role === "main" ? "default" : "secondary"}>
+                              {account.role === "main" ? "主账号" : "子账号"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Switch checked={account.is_active} onCheckedChange={() => handleToggleAccount(account)} />
+                              <span className={`text-xs ${account.is_active ? "text-green-600" : "text-slate-400"}`}>
+                                {account.is_active ? "启用" : "禁用"}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-slate-500 text-sm">
+                            {account.last_login_at ? formatDate(account.last_login_at) : "-"}
+                          </TableCell>
+                          <TableCell className="text-slate-500 text-sm">{account.login_count || 0}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" onClick={() => openAccountModal(account)}>
+                                    <Edit2 className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>编辑</TooltipContent>
+                              </Tooltip>
+                              {account.role !== "main" && (
+                                <Dialog open={deleteAccountId === account.id} onOpenChange={(o) => !o && setDeleteAccountId(null)}>
+                                  <DialogTrigger asChild>
+                                    <Button variant="ghost" size="icon" onClick={() => setDeleteAccountId(account.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent>
+                                    <DialogHeader>
+                                      <DialogTitle>确认删除</DialogTitle>
+                                      <DialogDescription>确定要删除账号 &quot;{account.username}&quot; 吗？此操作不可撤销。</DialogDescription>
+                                    </DialogHeader>
+                                    <DialogFooter>
+                                      <Button variant="outline" onClick={() => setDeleteAccountId(null)}>取消</Button>
+                                      <Button variant="destructive" onClick={handleDeleteAccount} disabled={accountDeleting}>
+                                        {accountDeleting ? "删除中..." : "删除"}
+                                      </Button>
+                                    </DialogFooter>
+                                  </DialogContent>
+                                </Dialog>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
