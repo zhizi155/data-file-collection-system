@@ -117,6 +117,8 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState("files");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [fileFilterShop, setFileFilterShop] = useState<string>("all");
+  const [fileFilterPlatform, setFileFilterPlatform] = useState<string>("all");
+  const [fileFilterSite, setFileFilterSite] = useState<string>("all");
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<string>("");
@@ -197,7 +199,12 @@ export default function AdminPage() {
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
-      const url = fileFilterShop === "all" ? "/api/files" : `/api/files?shopId=${fileFilterShop}`;
+      const params = new URLSearchParams();
+      if (fileFilterShop !== "all") params.set("shopId", fileFilterShop);
+      if (fileFilterPlatform !== "all") params.set("platform", fileFilterPlatform);
+      if (fileFilterSite !== "all") params.set("site", fileFilterSite);
+      const queryString = params.toString();
+      const url = queryString ? `/api/files?${queryString}` : "/api/files";
       const res = await fetch(url);
       const data = await res.json();
       if (data.success) {
@@ -208,7 +215,7 @@ export default function AdminPage() {
     } finally {
       setFilesLoading(false);
     }
-  }, [fileFilterShop]);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite]);
 
   useEffect(() => {
     if (activeTab === "files") {
@@ -764,6 +771,30 @@ export default function AdminPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <select
+                      value={fileFilterPlatform}
+                      onChange={(e) => setFileFilterPlatform(e.target.value)}
+                      className="px-3 py-2 border rounded-md text-sm bg-background"
+                    >
+                      <option value="all">全部平台</option>
+                      {[...new Set(shops.map((s) => s.platform))].map((platform) => (
+                        <option key={platform} value={platform}>
+                          {platform}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={fileFilterSite}
+                      onChange={(e) => setFileFilterSite(e.target.value)}
+                      className="px-3 py-2 border rounded-md text-sm bg-background"
+                    >
+                      <option value="all">全部站点</option>
+                      {[...new Set(shops.map((s) => s.site))].map((site) => (
+                        <option key={site} value={site}>
+                          {site}
+                        </option>
+                      ))}
+                    </select>
+                    <select
                       value={fileFilterShop}
                       onChange={(e) => setFileFilterShop(e.target.value)}
                       className="px-3 py-2 border rounded-md text-sm bg-background"
@@ -783,7 +814,7 @@ export default function AdminPage() {
                       className="gap-2"
                     >
                       <Download className="w-4 h-4" />
-                      导出CSV ({selectedFiles.size})
+                      导出上传记录 ({selectedFiles.size})
                     </Button>
                     <Button
                       variant="default"

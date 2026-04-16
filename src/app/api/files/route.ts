@@ -7,10 +7,36 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const shopId = searchParams.get("shopId");
+    const platform = searchParams.get("platform");
+    const site = searchParams.get("site");
     const limit = parseInt(searchParams.get("limit") || "100");
     const offset = parseInt(searchParams.get("offset") || "0");
 
     const supabase = getSupabaseClient();
+
+    // 先获取需要筛选的店铺ID列表
+    let filterShopIds: string[] | null = null;
+    if (platform || site) {
+      let shopQuery = supabase.from("shops").select("id");
+      if (platform && platform !== "all") {
+        shopQuery = shopQuery.eq("platform", platform);
+      }
+      if (site && site !== "all") {
+        shopQuery = shopQuery.eq("site", site);
+      }
+      const { data: filteredShops } = await shopQuery;
+      if (filteredShops && filteredShops.length > 0) {
+        filterShopIds = filteredShops.map((s) => s.id);
+      } else if (platform || site) {
+        // 如果有筛选条件但没找到店铺，返回空结果
+        return NextResponse.json({
+          success: true,
+          data: [],
+          total: 0,
+        });
+      }
+    }
+
     let query = supabase
       .from("uploaded_files")
       .select("*")
@@ -19,6 +45,8 @@ export async function GET(request: NextRequest) {
 
     if (shopId) {
       query = query.eq("shop_id", shopId);
+    } else if (filterShopIds && filterShopIds.length > 0) {
+      query = query.in("shop_id", filterShopIds);
     }
 
     const { data, error } = await query;
@@ -28,14 +56,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 获取店铺信息
-    const shopIds = [...new Set(data?.map((f) => f.shop_id).filter(Boolean) || [])];
+    const allShopIds = [...new Set(data?.map((f) => f.shop_id).filter(Boolean) || [])];
     const shopsMap: Record<string, { name: string; site: string; platform: string }> = {};
 
-    if (shopIds.length > 0) {
+    if (allShopIds.length > 0) {
       const { data: shopsData } = await supabase
         .from("shops")
         .select("id, name, site, platform")
-        .in("id", shopIds);
+        .in("id", allShopIds);
 
       if (shopsData) {
         shopsData.forEach((shop) => {
