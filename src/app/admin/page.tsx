@@ -632,6 +632,31 @@ export default function AdminPage() {
     }
   };
 
+  // 删除筛选结果（删除不符合筛选条件的店铺）
+  const handleDeleteFilteredShops = async () => {
+    if (shopFilterSite.length === 0) return;
+    const filteredOutShops = shops.filter((s) => !shopFilterSite.includes(s.site));
+    if (filteredOutShops.length === 0) {
+      setError("没有需要删除的店铺");
+      return;
+    }
+    if (!confirm(`确定要删除 ${filteredOutShops.length} 个不符合筛选条件的店铺吗？此操作不可撤销。`)) return;
+    
+    setShopDeleting(true);
+    try {
+      // 逐个删除
+      for (const shop of filteredOutShops) {
+        await fetch(`/api/shops?id=${shop.id}`, { method: "DELETE" });
+      }
+      setShopFilterSite([]);
+      loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setShopDeleting(false);
+    }
+  };
+
   // ========== 自定义变量操作 ==========
   const openVarModal = (v?: CustomVariable) => {
     if (v) {
@@ -1270,13 +1295,27 @@ export default function AdminPage() {
                       ))}
                     </SearchSelect>
                     {shopFilterSite.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShopFilterSite([])}
-                      >
-                        清除筛选
-                      </Button>
+                      <>
+                        <span className="text-xs text-slate-400">
+                          ({shops.filter((s) => !shopFilterSite.includes(s.site)).length} 个将被删除)
+                        </span>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={handleDeleteFilteredShops}
+                          disabled={shopDeleting}
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" />
+                          删除筛选结果 ({shops.filter((s) => !shopFilterSite.includes(s.site)).length})
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShopFilterSite([])}
+                        >
+                          取消筛选
+                        </Button>
+                      </>
                     )}
                   </div>
                 )}
