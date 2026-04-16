@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Lock, User, AlertCircle } from "lucide-react";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isLoggedIn } from "@/hooks/useAuth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,6 +17,13 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // 检查是否已登录
+  useEffect(() => {
+    if (isLoggedIn()) {
+      router.replace("/admin");
+    }
+  }, [router]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -23,9 +31,10 @@ export default function LoginPage() {
 
     // 简单的客户端验证（生产环境应该用服务端验证）
     if (username === "admin" && password === "admin") {
-      // 设置登录状态
-      localStorage.setItem("admin_logged_in", "true");
-      localStorage.setItem("admin_login_time", new Date().toISOString());
+      // 生成 token
+      const token = `admin_token_${Date.now()}_${Math.random().toString(36).substring(2)}`
+      localStorage.setItem("admin_auth_token", token)
+      localStorage.setItem("admin_auth_time", new Date().toISOString())
       router.push("/admin");
     } else {
       setError("用户名或密码错误");

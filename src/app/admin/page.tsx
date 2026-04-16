@@ -160,10 +160,28 @@ export default function AdminPage() {
 
   // 检查登录状态
   useEffect(() => {
-    const loggedIn = localStorage.getItem("admin_logged_in");
-    if (!loggedIn) {
-      router.push("/admin/login");
-    }
+    // 延迟检查，确保客户端已加载
+    const checkLogin = () => {
+      const loggedIn = localStorage.getItem("admin_auth_token");
+      const loginTime = localStorage.getItem("admin_auth_time");
+      
+      if (!loggedIn || !loginTime) {
+        router.push("/admin/login");
+        return;
+      }
+      
+      // 检查是否过期（7天）
+      const elapsed = Date.now() - new Date(loginTime).getTime();
+      const AUTH_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
+      if (elapsed > AUTH_TIMEOUT) {
+        localStorage.removeItem("admin_auth_token");
+        localStorage.removeItem("admin_auth_time");
+        router.push("/admin/login");
+      }
+    };
+
+    const timer = setTimeout(checkLogin, 100);
+    return () => clearTimeout(timer);
   }, [router]);
 
   // 加载所有数据
@@ -725,8 +743,8 @@ export default function AdminPage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("admin_logged_in");
-    localStorage.removeItem("admin_login_time");
+    localStorage.removeItem("admin_auth_token");
+    localStorage.removeItem("admin_auth_time");
     router.push("/admin/login");
   };
 
