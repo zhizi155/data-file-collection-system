@@ -118,10 +118,10 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("files");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-  const [fileFilterShop, setFileFilterShop] = useState<string>("all");
-  const [fileFilterPlatform, setFileFilterPlatform] = useState<string>("all");
-  const [fileFilterSite, setFileFilterSite] = useState<string>("all");
-  const [fileFilterDateRange, setFileFilterDateRange] = useState<string>("");
+  const [fileFilterShop, setFileFilterShop] = useState<string[]>([]);
+  const [fileFilterPlatform, setFileFilterPlatform] = useState<string[]>([]);
+  const [fileFilterSite, setFileFilterSite] = useState<string[]>([]);
+  const [fileFilterDateRange, setFileFilterDateRange] = useState<string[]>([]);
   const [availableDateRanges, setAvailableDateRanges] = useState<string[]>([]); // 所有可用的日期区间
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -220,10 +220,10 @@ export default function AdminPage() {
 
       // 再获取筛选后的数据
       const params = new URLSearchParams();
-      if (fileFilterShop !== "all") params.set("shopId", fileFilterShop);
-      if (fileFilterPlatform !== "all") params.set("platform", fileFilterPlatform);
-      if (fileFilterSite !== "all") params.set("site", fileFilterSite);
-      if (fileFilterDateRange) params.set("dateRange", fileFilterDateRange);
+      if (fileFilterShop.length > 0) params.set("shopId", fileFilterShop.join(","));
+      if (fileFilterPlatform.length > 0) params.set("platform", fileFilterPlatform.join(","));
+      if (fileFilterSite.length > 0) params.set("site", fileFilterSite.join(","));
+      if (fileFilterDateRange.length > 0) params.set("dateRange", fileFilterDateRange.join(","));
       const queryString = params.toString();
       const url = queryString ? `/api/files?${queryString}` : "/api/files";
       const res = await fetch(url);
@@ -797,12 +797,12 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2">
                     <SearchSelect
                       value={fileFilterPlatform}
-                      onValueChange={setFileFilterPlatform}
+                      onValueChange={setFileFilterPlatform as (value: string | string[]) => void}
                       placeholder="全部平台"
                       className="min-w-[120px]"
                       maxDisplayItems={5}
+                      multiple
                     >
-                      <SearchSelectItem value="all">全部平台</SearchSelectItem>
                       {[...new Set(shops.map((s) => s.platform))].map((platform) => (
                         <SearchSelectItem key={platform} value={platform}>
                           {platform}
@@ -811,12 +811,12 @@ export default function AdminPage() {
                     </SearchSelect>
                     <SearchSelect
                       value={fileFilterSite}
-                      onValueChange={setFileFilterSite}
+                      onValueChange={setFileFilterSite as (value: string | string[]) => void}
                       placeholder="全部站点"
                       className="min-w-[120px]"
                       maxDisplayItems={5}
+                      multiple
                     >
-                      <SearchSelectItem value="all">全部站点</SearchSelectItem>
                       {[...new Set(shops.map((s) => s.site))].map((site) => (
                         <SearchSelectItem key={site} value={site}>
                           {site}
@@ -825,12 +825,12 @@ export default function AdminPage() {
                     </SearchSelect>
                     <SearchSelect
                       value={fileFilterShop}
-                      onValueChange={setFileFilterShop}
+                      onValueChange={setFileFilterShop as (value: string | string[]) => void}
                       placeholder="全部店铺"
                       className="min-w-[150px]"
                       maxDisplayItems={8}
+                      multiple
                     >
-                      <SearchSelectItem value="all">全部店铺</SearchSelectItem>
                       {shops.map((shop) => (
                         <SearchSelectItem key={shop.id} value={shop.id}>
                           {shop.name}
@@ -839,29 +839,18 @@ export default function AdminPage() {
                     </SearchSelect>
                     <SearchSelect
                       value={fileFilterDateRange}
-                      onValueChange={setFileFilterDateRange}
+                      onValueChange={setFileFilterDateRange as (value: string | string[]) => void}
                       placeholder="日期区间"
                       className="min-w-[180px]"
                       maxDisplayItems={10}
+                      multiple
                     >
-                      <SearchSelectItem value="">全部日期</SearchSelectItem>
                       {availableDateRanges.map((range) => (
                         <SearchSelectItem key={range} value={range}>
                           {range}
                         </SearchSelectItem>
                       ))}
                     </SearchSelect>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setFileFilterDateRange("");
-                      }}
-                      className="gap-1"
-                      title="清除日期筛选"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -1073,7 +1062,7 @@ export default function AdminPage() {
                           <Label htmlFor="ruleExportType">关联的文件保存类型</Label>
                           <SearchSelect
                             value={ruleForm.export_type}
-                            onValueChange={(val) => setRuleForm({ ...ruleForm, export_type: val })}
+                            onValueChange={(val) => setRuleForm({ ...ruleForm, export_type: typeof val === 'string' ? val : val[0] || '' })}
                             placeholder="-- 通用规则（所有类型可用）--"
                             className="w-full"
                           >

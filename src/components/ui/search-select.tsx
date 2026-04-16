@@ -1,18 +1,22 @@
 "use client"
 
 import * as React from "react"
-import { CheckIcon, ChevronDownIcon, SearchIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, SearchIcon, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface SearchSelectProps {
-  value: string
-  onValueChange: (value: string) => void
+  /** 单选时为 string，多选时为 string[] */
+  value: string | string[]
+  onValueChange: (value: string | string[]) => void
   placeholder?: string
   children: React.ReactNode
   className?: string
   disabled?: boolean
   searchPlaceholder?: string
   maxDisplayItems?: number
+  showClearButton?: boolean
+  /** 是否多选模式，默认 false */
+  multiple?: boolean
 }
 
 interface SearchSelectOption {
@@ -30,6 +34,8 @@ function SearchSelect({
   disabled,
   searchPlaceholder = "搜索...",
   maxDisplayItems = 8,
+  showClearButton = true,
+  multiple = false,
 }: SearchSelectProps) {
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState("")
@@ -56,6 +62,15 @@ function SearchSelect({
   const allOptions = getOptions()
   const showSearch = allOptions.length > maxDisplayItems
 
+  // 统一为数组处理
+  const selectedValues: string[] = React.useMemo(() => {
+    if (multiple) {
+      return Array.isArray(value) ? value : []
+    } else {
+      return value ? [value as string] : []
+    }
+  }, [value, multiple])
+
   const filteredOptions = search
     ? allOptions.filter((opt) => opt.label.toLowerCase().includes(search.toLowerCase()))
     : allOptions
@@ -79,7 +94,40 @@ function SearchSelect({
     }
   }, [open, showSearch])
 
-  const selectedOption = allOptions.find((opt) => opt.value === value)
+  const handleSelect = (optionValue: string) => {
+    if (multiple) {
+      // 多选模式
+      const newValues = selectedValues.includes(optionValue)
+        ? selectedValues.filter((v) => v !== optionValue)
+        : [...selectedValues, optionValue]
+      onValueChange(newValues)
+    } else {
+      // 单选模式
+      onValueChange(optionValue)
+      setOpen(false)
+      setSearch("")
+    }
+  }
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onValueChange(multiple ? [] : "")
+  }
+
+  // 获取显示的文本
+  const displayText = () => {
+    if (selectedValues.length === 0) return placeholder
+    if (multiple) {
+      if (selectedValues.length === 1) {
+        const selected = allOptions.find((opt) => opt.value === selectedValues[0])
+        return selected?.label || placeholder
+      }
+      return `已选择 ${selectedValues.length} 项`
+    } else {
+      const selected = allOptions.find((opt) => opt.value === selectedValues[0])
+      return selected?.label || placeholder
+    }
+  }
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
@@ -92,18 +140,27 @@ function SearchSelect({
         }}
         className={cn(
           "border-input data-[placeholder]:text-muted-foreground flex items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 min-w-[120px]",
-          open && "ring-2 ring-ring ring-offset-2",
-          className
+          open && "ring-2 ring-ring ring-offset-2"
         )}
       >
-        <span className={cn("truncate flex-1 text-left", !selectedOption && "text-muted-foreground")}>
-          {selectedOption?.label || placeholder}
+        <span className={cn("truncate flex-1 text-left", selectedValues.length === 0 && "text-muted-foreground")}>
+          {displayText()}
         </span>
-        <ChevronDownIcon className={cn("h-4 w-4 opacity-50 transition-transform flex-shrink-0", open && "rotate-180")} />
+        <div className="flex items-center gap-1">
+          {selectedValues.length > 0 && showClearButton && (
+            <span
+              onClick={handleClear}
+              className="hover:bg-accent rounded p-0.5"
+            >
+              <X className="h-3.5 w-3.5 opacity-60" />
+            </span>
+          )}
+          <ChevronDownIcon className={cn("h-4 w-4 opacity-50 transition-transform", open && "rotate-180")} />
+        </div>
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 min-w-[160px] animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 bg-popover text-popover-foreground rounded-md border shadow-md">
+        <div className="absolute z-50 mt-1 min-w-[200px] animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 bg-popover text-popover-foreground rounded-md border shadow-md">
           {showSearch && (
             <div className="p-2 border-b">
               <div className="relative">
@@ -126,30 +183,46 @@ function SearchSelect({
                 没有找到匹配的选项
               </div>
             ) : (
-              filteredOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  disabled={option.disabled}
-                  onClick={() => {
-                    onValueChange(option.value)
-                    setOpen(false)
-                    setSearch("")
-                  }}
-                  className={cn(
-                    "relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none transition-colors",
-                    option.disabled && "pointer-events-none opacity-50",
-                    option.value === value
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent hover:text-accent-foreground"
-                  )}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    {option.value === value && <CheckIcon className="h-4 w-4 flex-shrink-0" />}
-                    <span className="truncate">{option.label}</span>
-                  </span>
-                </button>
-              ))
+              filteredOptions.map((option) => {
+                const isSelected = selectedValues.includes(option.value)
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={option.disabled}
+                    onClick={() => handleSelect(option.value)}
+                    className={cn(
+                      "relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none transition-colors",
+                      option.disabled && "pointer-events-none opacity-50",
+                      isSelected
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-accent hover:text-accent-foreground"
+                    )}
+                  >
+                    {multiple ? (
+                      // 多选模式：显示复选框
+                      <span className={cn(
+                        "flex items-center gap-2 w-full",
+                        isSelected && "font-medium"
+                      )}>
+                        <span className={cn(
+                          "flex-shrink-0 w-4 h-4 border rounded flex items-center justify-center",
+                          isSelected ? "bg-primary border-primary" : "border-muted-foreground"
+                        )}>
+                          {isSelected && <CheckIcon className="h-3 w-3 text-primary-foreground" />}
+                        </span>
+                        <span className="truncate">{option.label}</span>
+                      </span>
+                    ) : (
+                      // 单选模式：显示单选指示器
+                      <span className="flex items-center gap-2 truncate">
+                        {isSelected && <CheckIcon className="h-4 w-4 flex-shrink-0" />}
+                        <span className={cn(isSelected && "font-medium")}>{option.label}</span>
+                      </span>
+                    )}
+                  </button>
+                )
+              })
             )}
           </div>
         </div>

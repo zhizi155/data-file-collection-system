@@ -19,10 +19,12 @@ interface Shop {
 
 interface UploadResult {
   success: boolean;
-  originalName: string;
-  newName: string;
-  fileUrl: string;
-  fileSize: number;
+  originalName?: string;
+  newName?: string;
+  fileUrl?: string;
+  fileSize?: number;
+  message?: string;
+  data?: any[];
 }
 
 // 大文件阈值（使用分片上传的文件大小阈值）
@@ -41,7 +43,7 @@ export default function UploadPage() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shops, setShops] = useState<Shop[]>([]);
-  const [selectedShop, setSelectedShop] = useState<string>("");
+  const [selectedShop, setSelectedShop] = useState<string[]>([]);
   const [selectedExportType, setSelectedExportType] = useState<string>("");
   const [shopLoading, setShopLoading] = useState(true);
   const [largeFileWarning, setLargeFileWarning] = useState<string | null>(null);
@@ -66,11 +68,15 @@ export default function UploadPage() {
 
   // 根据选中的店铺获取导出类型选项
   const exportTypeOptions = useMemo(() => {
-    if (!selectedShop) return [];
-    const shop = shops.find((s) => s.id === selectedShop);
-    if (!shop || !shop.export_type) return [];
-    // 支持逗号分隔的多个类型
-    return shop.export_type.split(",").map((t) => t.trim()).filter(Boolean);
+    if (selectedShop.length === 0) return [];
+    const selectedShops = shops.filter((s) => selectedShop.includes(s.id));
+    const typesSet = new Set<string>();
+    selectedShops.forEach((shop) => {
+      if (shop.export_type) {
+        shop.export_type.split(",").map((t) => t.trim()).filter(Boolean).forEach((t) => typesSet.add(t));
+      }
+    });
+    return Array.from(typesSet);
   }, [selectedShop, shops]);
 
   // 当店铺变化时，清空导出类型选择
@@ -125,7 +131,7 @@ export default function UploadPage() {
   }, []);
 
   const handleUpload = async () => {
-    if (!file || !selectedShop) return;
+    if (!file || selectedShop.length === 0) return;
     // 如果店铺有导出类型，则必须选择
     if (exportTypeOptions.length > 0 && !selectedExportType) return;
 
@@ -161,42 +167,63 @@ export default function UploadPage() {
   const uploadNormalFile = async () => {
     if (!file) return;
     
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("shopId", selectedShop);
-    if (selectedExportType) {
-      formData.append("exportType", selectedExportType);
-    }
-
-    const res = await fetch("/api/upload", { method: "POST", body: formData });
-
-    // 检查Content-Type是否为JSON
-    const contentType = res.headers.get("content-type");
-    if (contentType && contentType.includes("application/json")) {
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setError(data.error || "上传失败");
-      } else {
-        setResult(data);
+    const results: any[] = [];
+    const errors: string[] = [];
+    
+    // 对每个选中的店铺分别上传
+    for (const shopId of selectedShop) {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("shopId", shopId);
+      if (selectedExportType) {
+        formData.append("exportType", selectedExportType);
       }
-    } else {
-      // 非JSON响应（可能是代理返回的错误）
-      const text = await res.text();
-      if (res.status === 413) {
-        setError("文件过大，超过了服务器允许的最大限制。建议压缩文件后再上传。");
+
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+
+      // 检查Content-Type是否为JSON
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          errors.push(data.error || `店铺 ${shopId} 上传失败`);
+        } else {
+          results.push(data);
+        }
       } else {
-        setError(`上传失败 (${res.status}): ${text.substring(0, 100)}`);
+        // 非JSON响应（可能是代理返回的错误）
+        const text = await res.text();
+        errors.push(text || `店铺 ${shopId} 上传失败`);
+      }
+    }
+    
+    if (errors.length > 0 && results.length === 0) {
+      setError(errors.join("; "));
+    } else {
+      // 如果全部成功或部分成功，返回结果
+      if (results.length === 1) {
+        setResult(results[0]);
+      } else {
+        // 多店铺上传时返回汇总信息
+        setResult({
+          success: true,
+          message: `成功上传到 ${results.length}/${selectedShop.length} 个店铺`,
+          data: results,
+        });
       }
     }
   };
 
   // 大文件分片上传 - 使用小分片通过网关
   const uploadLargeFile = async () => {
-    if (!file) return;
+    if (!file || selectedShop.length === 0) return;
     
     // 使用4MB分片
     const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB per chunk
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    // 大文件上传只支持单个店铺
+    const shopId = selectedShop[0];
 
     // 1. 获取对象key
     setUploadProgress(5);
@@ -206,7 +233,7 @@ export default function UploadPage() {
       body: JSON.stringify({
         fileName: file.name,
         fileSize: file.size,
-        shopId: selectedShop,
+        shopId: shopId,
         exportType: selectedExportType || undefined,
         contentType: file.type || "application/octet-stream",
       }),
@@ -267,7 +294,7 @@ export default function UploadPage() {
         originalName: file.name,
         displayName: newName, // 命名规则生成的文件名
         fileSize: file.size,
-        shopId: selectedShop,
+        shopId: shopId,
         exportType: selectedExportType || undefined,
       }),
     });
@@ -294,7 +321,7 @@ export default function UploadPage() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const currentShop = shops.find((s) => s.id === selectedShop);
+  const currentShops = shops.filter((s) => selectedShop.includes(s.id));
   const hasExportType = exportTypeOptions.length > 0;
 
   return (
@@ -323,12 +350,13 @@ export default function UploadPage() {
               </Label>
               <SearchSelect
                 value={selectedShop}
-                onValueChange={setSelectedShop}
+                onValueChange={setSelectedShop as (value: string | string[]) => void}
                 placeholder={shopLoading ? "加载中..." : "请选择店铺"}
                 disabled={shopLoading}
                 searchPlaceholder="搜索店铺名称..."
                 maxDisplayItems={8}
                 className="w-full"
+                multiple
               >
                 {shops.map((shop) => (
                   <SearchSelectItem key={shop.id} value={shop.id}>
@@ -337,9 +365,10 @@ export default function UploadPage() {
                   </SearchSelectItem>
                 ))}
               </SearchSelect>
-              {currentShop && (
+              {currentShops.length > 0 && (
                 <p className="text-xs text-slate-500">
-                  已选择店铺: {currentShop.name} | 站点: {currentShop.site} | 平台: {currentShop.platform}
+                  已选择 {currentShops.length} 个店铺:
+                  {currentShops.map((s) => `${s.name}(${s.site}-${s.platform})`).join(", ")}
                 </p>
               )}
               {shops.length === 0 && !shopLoading && (
@@ -367,7 +396,7 @@ export default function UploadPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-slate-500">
-                  店铺「{currentShop?.name}」的导出类型：{currentShop?.export_type}
+                  已选店铺的导出类型：{currentShops.map((s) => s.export_type).filter(Boolean).join(", ") || "无"}
                 </p>
               </div>
             )}
@@ -453,7 +482,7 @@ export default function UploadPage() {
                     <div className="mt-2 space-y-1 text-sm text-green-700 dark:text-green-300">
                       <p>原始文件名: {result.originalName}</p>
                       <p>保存文件名: {result.newName}</p>
-                      <p>文件大小: {formatFileSize(result.fileSize)}</p>
+                      <p>文件大小: {formatFileSize(result.fileSize || 0)}</p>
                     </div>
                     <div className="mt-3 flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => window.open(result.fileUrl, "_blank")} className="gap-2">
@@ -484,7 +513,7 @@ export default function UploadPage() {
             {file && (
               <Button 
                 onClick={handleUpload} 
-                disabled={uploading || !selectedShop || (hasExportType && !selectedExportType) || shopLoading} 
+                disabled={uploading || selectedShop.length === 0 || (hasExportType && !selectedExportType) || shopLoading} 
                 className="w-full" 
                 size="lg"
               >
@@ -496,7 +525,7 @@ export default function UploadPage() {
                 ) : file.size > LARGE_FILE_THRESHOLD ? (
                   <span className="flex items-center gap-2">
                     <span>⚠️</span>
-                    上传大文件（可能需要较长时间）
+                    {selectedShop.length > 1 ? "上传大文件到第一个店铺" : "上传大文件（可能需要较长时间）"}
                   </span>
                 ) : (
                   "开始上传"
