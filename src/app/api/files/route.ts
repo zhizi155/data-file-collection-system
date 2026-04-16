@@ -9,6 +9,8 @@ export async function GET(request: NextRequest) {
     const shopId = searchParams.get("shopId");
     const platform = searchParams.get("platform");
     const site = searchParams.get("site");
+    const dateStart = searchParams.get("dateStart");
+    const dateEnd = searchParams.get("dateEnd");
     const limit = parseInt(searchParams.get("limit") || "100");
     const offset = parseInt(searchParams.get("offset") || "0");
 
@@ -40,8 +42,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("uploaded_files")
       .select("*")
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order("created_at", { ascending: false });
 
     if (shopId) {
       query = query.eq("shop_id", shopId);
@@ -49,11 +50,44 @@ export async function GET(request: NextRequest) {
       query = query.in("shop_id", filterShopIds);
     }
 
-    const { data, error } = await query;
+    // 添加日期筛选
+    if (dateStart) {
+      query = query.gte("created_at", `${dateStart}T00:00:00`);
+    }
+    if (dateEnd) {
+      query = query.lte("created_at", `${dateEnd}T23:59:59`);
+    }
+
+    // 获取总数（带筛选条件）
+    let countQuery = supabase
+      .from("uploaded_files")
+      .select("*", { count: "exact", head: true });
+    
+    if (shopId) {
+      countQuery = countQuery.eq("shop_id", shopId);
+    } else if (filterShopIds && filterShopIds.length > 0) {
+      countQuery = countQuery.in("shop_id", filterShopIds);
+    }
+    if (dateStart) {
+      countQuery = countQuery.gte("created_at", `${dateStart}T00:00:00`);
+    }
+    if (dateEnd) {
+      countQuery = countQuery.lte("created_at", `${dateEnd}T23:59:59`);
+    }
+
+    const [queryResult, countResult] = await Promise.all([
+      query.range(offset, offset + limit - 1),
+      countQuery,
+    ]);
+
+    const data = queryResult.data;
+    const error = queryResult.error;
 
     if (error) {
       return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
     }
+
+    const count = countResult.count || 0;
 
     // 获取店铺信息
     const allShopIds = [...new Set(data?.map((f) => f.shop_id).filter(Boolean) || [])];
@@ -82,12 +116,6 @@ export async function GET(request: NextRequest) {
       shops: file.shop_id ? shopsMap[file.shop_id] || null : null,
       date_range: smartExtractDateRange(file.original_name),
     }));
-
-    // 获取总数
-    const { count } = await supabase
-      .from("uploaded_files")
-      .select("*", { count: "exact", head: true })
-      .eq("shop_id", shopId || "");
 
     return NextResponse.json({
       success: true,

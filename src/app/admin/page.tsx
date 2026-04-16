@@ -121,6 +121,8 @@ export default function AdminPage() {
   const [fileFilterShop, setFileFilterShop] = useState<string>("all");
   const [fileFilterPlatform, setFileFilterPlatform] = useState<string>("all");
   const [fileFilterSite, setFileFilterSite] = useState<string>("all");
+  const [fileFilterDateStart, setFileFilterDateStart] = useState<string>("");
+  const [fileFilterDateEnd, setFileFilterDateEnd] = useState<string>("");
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<string>("");
@@ -205,6 +207,8 @@ export default function AdminPage() {
       if (fileFilterShop !== "all") params.set("shopId", fileFilterShop);
       if (fileFilterPlatform !== "all") params.set("platform", fileFilterPlatform);
       if (fileFilterSite !== "all") params.set("site", fileFilterSite);
+      if (fileFilterDateStart) params.set("dateStart", fileFilterDateStart);
+      if (fileFilterDateEnd) params.set("dateEnd", fileFilterDateEnd);
       const queryString = params.toString();
       const url = queryString ? `/api/files?${queryString}` : "/api/files";
       const res = await fetch(url);
@@ -217,7 +221,7 @@ export default function AdminPage() {
     } finally {
       setFilesLoading(false);
     }
-  }, [fileFilterShop, fileFilterPlatform, fileFilterSite]);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateStart, fileFilterDateEnd]);
 
   useEffect(() => {
     if (activeTab === "files") {
@@ -818,6 +822,35 @@ export default function AdminPage() {
                         </SearchSelectItem>
                       ))}
                     </SearchSelect>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="date"
+                        value={fileFilterDateStart}
+                        onChange={(e) => setFileFilterDateStart(e.target.value)}
+                        className="px-3 py-2 border rounded-md text-sm bg-background h-9"
+                        placeholder="开始日期"
+                      />
+                      <span className="text-slate-400">-</span>
+                      <input
+                        type="date"
+                        value={fileFilterDateEnd}
+                        onChange={(e) => setFileFilterDateEnd(e.target.value)}
+                        className="px-3 py-2 border rounded-md text-sm bg-background h-9"
+                        placeholder="结束日期"
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setFileFilterDateStart("");
+                        setFileFilterDateEnd("");
+                      }}
+                      className="gap-1"
+                      title="清除日期筛选"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
