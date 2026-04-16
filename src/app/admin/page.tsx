@@ -632,7 +632,7 @@ export default function AdminPage() {
     }
   };
 
-  // 删除筛选结果（删除不符合筛选条件的店铺）
+  // 删除筛选结果（删除未选中站点的店铺）
   const handleDeleteFilteredShops = async () => {
     if (shopFilterSite.length === 0) return;
     const filteredOutShops = shops.filter((s) => !shopFilterSite.includes(s.site));
@@ -640,7 +640,7 @@ export default function AdminPage() {
       setError("没有需要删除的店铺");
       return;
     }
-    if (!confirm(`确定要删除 ${filteredOutShops.length} 个不符合筛选条件的店铺吗？此操作不可撤销。`)) return;
+    if (!confirm(`确定要删除 ${filteredOutShops.length} 个未选中站点的店铺吗？此操作不可撤销。`)) return;
     
     setShopDeleting(true);
     try {
@@ -1296,8 +1296,8 @@ export default function AdminPage() {
                     </SearchSelect>
                     {shopFilterSite.length > 0 && (
                       <>
-                        <span className="text-xs text-slate-400">
-                          ({shops.filter((s) => !shopFilterSite.includes(s.site)).length} 个将被删除)
+                        <span className="text-xs text-blue-600">
+                          显示 {shops.filter((s) => shopFilterSite.includes(s.site)).length} 条结果
                         </span>
                         <Button
                           variant="destructive"
@@ -1306,7 +1306,7 @@ export default function AdminPage() {
                           disabled={shopDeleting}
                         >
                           <Trash2 className="w-4 h-4 mr-1" />
-                          删除筛选结果 ({shops.filter((s) => !shopFilterSite.includes(s.site)).length})
+                          删除未选中 ({shops.filter((s) => !shopFilterSite.includes(s.site)).length})
                         </Button>
                         <Button
                           variant="outline"
