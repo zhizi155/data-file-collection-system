@@ -1481,6 +1481,10 @@ function CollectionProgressTable() {
     lastUploadTime: string | null;
   }>>([]);
   const [loading, setLoading] = useState(true);
+  // 筛选状态
+  const [filterSite, setFilterSite] = useState<string[]>([]);
+  const [filterPlatform, setFilterPlatform] = useState<string[]>([]);
+  const [filterUploaded, setFilterUploaded] = useState<string>(""); // "" | "yes" | "no"
 
   useEffect(() => {
     loadProgressData();
@@ -1573,60 +1577,132 @@ function CollectionProgressTable() {
     });
   };
 
+  // 过滤后的数据
+  const filteredData = progressData.filter((item) => {
+    // 站点筛选
+    if (filterSite.length > 0 && !filterSite.includes(item.shopSite)) {
+      return false;
+    }
+    // 平台筛选
+    if (filterPlatform.length > 0 && !filterPlatform.includes(item.shopPlatform)) {
+      return false;
+    }
+    // 是否上传筛选
+    if (filterUploaded === "yes" && item.uploadCount === 0) {
+      return false;
+    }
+    if (filterUploaded === "no" && item.uploadCount > 0) {
+      return false;
+    }
+    return true;
+  });
+
   if (loading) {
     return <div className="text-center py-8 text-slate-500">加载中...</div>;
   }
 
-  if (progressData.length === 0) {
-    return (
-      <div className="text-center py-8 text-slate-500">
-        暂无收集进度数据。请确保已配置店铺的保存类型。
-      </div>
-    );
-  }
-
   return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>店铺名称</TableHead>
-            <TableHead>站点</TableHead>
-            <TableHead>平台</TableHead>
-            <TableHead>文件保存类型</TableHead>
-            <TableHead>是否上传</TableHead>
-            <TableHead>上传数量</TableHead>
-            <TableHead>最后上传时间</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {progressData.map((item, index) => (
-            <TableRow key={`${item.shopId}_${item.exportType}_${index}`}>
-              <TableCell className="font-medium">{item.shopName}</TableCell>
-              <TableCell>
-                <Badge variant="outline">{item.shopSite}</Badge>
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline">{item.shopPlatform}</Badge>
-              </TableCell>
-              <TableCell>
-                <Badge variant={item.uploadCount > 0 ? "default" : "secondary"}>
-                  {item.exportType}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                {item.uploadCount > 0 ? (
-                  <Badge variant="default" className="bg-green-500">已上传</Badge>
-                ) : (
-                  <Badge variant="destructive">未上传</Badge>
-                )}
-              </TableCell>
-              <TableCell className="font-mono">{item.uploadCount}</TableCell>
-              <TableCell className="text-sm text-slate-500">{formatDate(item.lastUploadTime)}</TableCell>
-            </TableRow>
+    <div className="space-y-4">
+      {/* 筛选工具栏 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-slate-500">筛选:</span>
+        <SearchSelect
+          value={filterSite}
+          onValueChange={setFilterSite as (value: string | string[]) => void}
+          placeholder="全部站点"
+          className="min-w-[120px]"
+          maxDisplayItems={5}
+          multiple
+        >
+          {[...new Set(progressData.map((d) => d.shopSite))].map((site) => (
+            <SearchSelectItem key={site} value={site}>{site}</SearchSelectItem>
           ))}
-        </TableBody>
-      </Table>
+        </SearchSelect>
+        <SearchSelect
+          value={filterPlatform}
+          onValueChange={setFilterPlatform as (value: string | string[]) => void}
+          placeholder="全部平台"
+          className="min-w-[120px]"
+          maxDisplayItems={5}
+          multiple
+        >
+          {[...new Set(progressData.map((d) => d.shopPlatform))].map((platform) => (
+            <SearchSelectItem key={platform} value={platform}>{platform}</SearchSelectItem>
+          ))}
+        </SearchSelect>
+        <SearchSelect
+          value={filterUploaded}
+          onValueChange={(val) => setFilterUploaded(typeof val === 'string' ? val : '')}
+          placeholder="是否上传"
+          className="min-w-[120px]"
+          showClearButton
+        >
+          <SearchSelectItem value="yes">已上传</SearchSelectItem>
+          <SearchSelectItem value="no">未上传</SearchSelectItem>
+        </SearchSelect>
+        {(filterSite.length > 0 || filterPlatform.length > 0 || filterUploaded) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setFilterSite([]);
+              setFilterPlatform([]);
+              setFilterUploaded("");
+            }}
+          >
+            清除筛选
+          </Button>
+        )}
+      </div>
+
+      {filteredData.length === 0 ? (
+        <div className="text-center py-8 text-slate-500">
+          暂无收集进度数据。请确保已配置店铺的保存类型。
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>店铺名称</TableHead>
+                <TableHead>站点</TableHead>
+                <TableHead>平台</TableHead>
+                <TableHead>文件保存类型</TableHead>
+                <TableHead>是否上传</TableHead>
+                <TableHead>上传数量</TableHead>
+                <TableHead>最后上传时间</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredData.map((item, index) => (
+                <TableRow key={`${item.shopId}_${item.exportType}_${index}`}>
+                  <TableCell className="font-medium">{item.shopName}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{item.shopSite}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{item.shopPlatform}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={item.uploadCount > 0 ? "default" : "secondary"}>
+                      {item.exportType}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {item.uploadCount > 0 ? (
+                      <Badge variant="default" className="bg-green-500">已上传</Badge>
+                    ) : (
+                      <Badge variant="destructive">未上传</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="font-mono">{item.uploadCount}</TableCell>
+                  <TableCell className="text-sm text-slate-500">{formatDate(item.lastUploadTime)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }
