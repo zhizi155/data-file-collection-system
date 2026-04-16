@@ -97,6 +97,7 @@ interface UploadedFile {
   mime_type: string | null;
   rule_id: string | null;
   shop_id: string | null;
+  export_type: string | null; // 文件保存类型
   created_at: string;
   date_range: string | null; // 智能识别的日期区间
   shops?: {
@@ -736,11 +737,15 @@ export default function AdminPage() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4 mb-6">
+          <TabsList className="grid w-full grid-cols-5 mb-6">
             <TabsTrigger value="files" className="gap-2">
               <File className="w-4 h-4" />
               上传记录
               {files.length > 0 && <Badge variant="secondary" className="ml-1">{files.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="progress" className="gap-2">
+              <File className="w-4 h-4" />
+              收集进度
             </TabsTrigger>
             <TabsTrigger value="rules" className="gap-2">
               <FileText className="w-4 h-4" />
@@ -972,6 +977,24 @@ export default function AdminPage() {
                     </Table>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 文件收集进度 */}
+          <TabsContent value="progress">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <File className="w-5 h-5" />
+                    文件收集进度
+                  </CardTitle>
+                  <CardDescription>查看各店铺各保存类型的文件收集情况</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <CollectionProgressTable />
               </CardContent>
             </Card>
           </TabsContent>
@@ -1409,6 +1432,168 @@ export default function AdminPage() {
           </CardContent>
         </Card>
       </main>
+    </div>
+  );
+}
+
+// 文件收集进度表格组件
+function CollectionProgressTable() {
+  const [progressData, setProgressData] = useState<Array<{
+    shopId: string;
+    shopName: string;
+    shopSite: string;
+    shopPlatform: string;
+    exportType: string;
+    uploadCount: number;
+    lastUploadTime: string | null;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadProgressData();
+  }, []);
+
+  const loadProgressData = async () => {
+    setLoading(true);
+    try {
+      // 获取所有店铺
+      const shopsRes = await fetch("/api/shops?active=true");
+      const shopsData = await shopsRes.json();
+      
+      // 获取所有上传记录
+      const filesRes = await fetch("/api/files?limit=10000");
+      const filesData = await filesRes.json();
+
+      if (shopsData.success && filesData.success) {
+        const shops = shopsData.data || [];
+        const files = filesData.data || [];
+        
+        // 统计数据
+        const progressMap: Record<string, {
+          shopId: string;
+          shopName: string;
+          shopSite: string;
+          shopPlatform: string;
+          exportType: string;
+          uploadCount: number;
+          lastUploadTime: string | null;
+        }> = {};
+
+        // 遍历每个店铺
+        shops.forEach((shop: Shop) => {
+          if (!shop.export_type) return;
+          
+          // 拆分保存类型
+          const exportTypes = shop.export_type.split(",").map((t: string) => t.trim()).filter(Boolean);
+          
+          exportTypes.forEach((exportType: string) => {
+            const key = `${shop.id}_${exportType}`;
+            
+            // 查找该店铺该类型的上传记录
+            const relatedFiles = files.filter((f: UploadedFile) => 
+              f.shop_id === shop.id && f.export_type === exportType
+            );
+
+            progressMap[key] = {
+              shopId: shop.id,
+              shopName: shop.name,
+              shopSite: shop.site,
+              shopPlatform: shop.platform,
+              exportType: exportType,
+              uploadCount: relatedFiles.length,
+              lastUploadTime: relatedFiles.length > 0 
+                ? relatedFiles.sort((a: UploadedFile, b: UploadedFile) => 
+                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                  )[0].created_at
+                : null,
+            };
+          });
+        });
+
+        // 转换为数组并排序
+        const progressList = Object.values(progressMap).sort((a, b) => {
+          // 按店铺名排序，再按保存类型排序
+          if (a.shopName !== b.shopName) {
+            return a.shopName.localeCompare(b.shopName);
+          }
+          return a.exportType.localeCompare(b.exportType);
+        });
+
+        setProgressData(progressList);
+      }
+    } catch (err) {
+      console.error("加载收集进度失败:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "-";
+    const date = new Date(dateStr);
+    return date.toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  if (loading) {
+    return <div className="text-center py-8 text-slate-500">加载中...</div>;
+  }
+
+  if (progressData.length === 0) {
+    return (
+      <div className="text-center py-8 text-slate-500">
+        暂无收集进度数据。请确保已配置店铺的保存类型。
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>店铺名称</TableHead>
+            <TableHead>站点</TableHead>
+            <TableHead>平台</TableHead>
+            <TableHead>文件保存类型</TableHead>
+            <TableHead>是否上传</TableHead>
+            <TableHead>上传数量</TableHead>
+            <TableHead>最后上传时间</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {progressData.map((item, index) => (
+            <TableRow key={`${item.shopId}_${item.exportType}_${index}`}>
+              <TableCell className="font-medium">{item.shopName}</TableCell>
+              <TableCell>
+                <Badge variant="outline">{item.shopSite}</Badge>
+              </TableCell>
+              <TableCell>
+                <Badge variant="outline">{item.shopPlatform}</Badge>
+              </TableCell>
+              <TableCell>
+                <Badge variant={item.uploadCount > 0 ? "default" : "secondary"}>
+                  {item.exportType}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                {item.uploadCount > 0 ? (
+                  <Badge variant="default" className="bg-green-500">已上传</Badge>
+                ) : (
+                  <Badge variant="destructive">未上传</Badge>
+                )}
+              </TableCell>
+              <TableCell className="font-mono">{item.uploadCount}</TableCell>
+              <TableCell className="text-sm text-slate-500">{formatDate(item.lastUploadTime)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
