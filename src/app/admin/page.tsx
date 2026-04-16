@@ -1057,6 +1057,9 @@ export default function AdminPage() {
                       maxDisplayItems={10}
                       multiple
                     >
+                      <SearchSelectItem key="__NONE__" value="__NONE__">
+                        未识别
+                      </SearchSelectItem>
                       {availableDateRanges.map((range) => (
                         <SearchSelectItem key={range} value={range}>
                           {range}

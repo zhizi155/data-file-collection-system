@@ -108,10 +108,21 @@ export async function GET(request: NextRequest) {
 
     // 日期区间文本筛选（在内存中筛选，因为 date_range 是计算字段）
     const dateRangeList = dateRange ? dateRange.split(",").filter(Boolean) : [];
+    const includeNone = dateRangeList.includes("__NONE__");
+    const filteredDateRanges = dateRangeList.filter((dr) => dr !== "__NONE__");
+    
     if (dateRangeList.length > 0) {
-      filesWithShops = filesWithShops.filter((file) =>
-        dateRangeList.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()))
-      );
+      filesWithShops = filesWithShops.filter((file) => {
+        // "未识别"选项：筛选 date_range 为 null 的记录
+        if (includeNone && file.date_range === null) {
+          return true;
+        }
+        // 其他日期区间筛选
+        if (filteredDateRanges.length > 0) {
+          return filteredDateRanges.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()));
+        }
+        return true;
+      });
     }
 
     // 获取过滤后的总数（用于分页）
@@ -130,9 +141,17 @@ export async function GET(request: NextRequest) {
 
       const { data: allFiles } = await allQuery;
       const allWithDateRange = allFiles?.map((file) => smartExtractDateRange(file.original_name)) || [];
-      filteredTotal = allWithDateRange.filter((dr) =>
-        dateRangeList.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))
-      ).length;
+      filteredTotal = allWithDateRange.filter((dr) => {
+        // "未识别"：date_range 为 null
+        if (includeNone && dr === null) {
+          return true;
+        }
+        // 其他日期区间筛选
+        if (filteredDateRanges.length > 0) {
+          return filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()));
+        }
+        return false;
+      }).length;
     }
 
     return NextResponse.json({
