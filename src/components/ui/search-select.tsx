@@ -36,7 +36,6 @@ function SearchSelect({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
-  // 解析 children 获取选项
   const getOptions = (): SearchSelectOption[] => {
     const options: SearchSelectOption[] = []
     React.Children.forEach(children, (child) => {
@@ -57,12 +56,10 @@ function SearchSelect({
   const allOptions = getOptions()
   const showSearch = allOptions.length > maxDisplayItems
 
-  // 过滤选项
   const filteredOptions = search
     ? allOptions.filter((opt) => opt.label.toLowerCase().includes(search.toLowerCase()))
     : allOptions
 
-  // 点击外部关闭
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -76,7 +73,6 @@ function SearchSelect({
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [open])
 
-  // 打开时聚焦搜索框
   React.useEffect(() => {
     if (open && showSearch && inputRef.current) {
       inputRef.current.focus()
@@ -87,7 +83,6 @@ function SearchSelect({
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
-      {/* Trigger */}
       <button
         type="button"
         disabled={disabled}
@@ -96,20 +91,19 @@ function SearchSelect({
           setSearch("")
         }}
         className={cn(
-          "border-input data-[placeholder]:text-muted-foreground flex w-fit items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9",
+          "border-input data-[placeholder]:text-muted-foreground flex items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 min-w-[120px]",
           open && "ring-2 ring-ring ring-offset-2",
           className
         )}
       >
-        <span className={cn(!selectedOption && "text-muted-foreground")}>
+        <span className={cn("truncate flex-1 text-left", !selectedOption && "text-muted-foreground")}>
           {selectedOption?.label || placeholder}
         </span>
-        <ChevronDownIcon className={cn("h-4 w-4 opacity-50 transition-transform", open && "rotate-180")} />
+        <ChevronDownIcon className={cn("h-4 w-4 opacity-50 transition-transform flex-shrink-0", open && "rotate-180")} />
       </button>
 
-      {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 mt-1 w-full min-w-[var(--radix-select-trigger-width)] animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 bg-popover text-popover-foreground rounded-md border shadow-md">
+        <div className="absolute z-50 mt-1 min-w-[160px] animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 bg-popover text-popover-foreground rounded-md border shadow-md">
           {showSearch && (
             <div className="p-2 border-b">
               <div className="relative">
@@ -120,7 +114,7 @@ function SearchSelect({
                   placeholder={searchPlaceholder}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="flex h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 py-1 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+                  className="flex h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 py-1 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                 />
               </div>
             </div>
@@ -143,20 +137,16 @@ function SearchSelect({
                     setSearch("")
                   }}
                   className={cn(
-                    "relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors",
+                    "relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none transition-colors",
                     option.disabled && "pointer-events-none opacity-50",
                     option.value === value
                       ? "bg-accent text-accent-foreground"
                       : "hover:bg-accent hover:text-accent-foreground"
                   )}
                 >
-                  {option.value === value && (
-                    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-                      <CheckIcon className="h-4 w-4" />
-                    </span>
-                  )}
-                  <span className={cn("truncate", option.value !== value && "pl-6")}>
-                    {option.label}
+                  <span className="flex items-center gap-2 truncate">
+                    {option.value === value && <CheckIcon className="h-4 w-4 flex-shrink-0" />}
+                    <span className="truncate">{option.label}</span>
                   </span>
                 </button>
               ))
