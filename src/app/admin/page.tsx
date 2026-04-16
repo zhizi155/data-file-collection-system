@@ -1294,29 +1294,33 @@ export default function AdminPage() {
                         <SearchSelectItem key={site} value={site}>{site}</SearchSelectItem>
                       ))}
                     </SearchSelect>
-                    {shopFilterSite.length > 0 && (
-                      <>
-                        <span className="text-xs text-blue-600">
-                          显示 {shops.filter((s) => shopFilterSite.includes(s.site)).length} 条结果
-                        </span>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={handleDeleteFilteredShops}
-                          disabled={shopDeleting}
-                        >
-                          <Trash2 className="w-4 h-4 mr-1" />
-                          删除未选中 ({shops.filter((s) => !shopFilterSite.includes(s.site)).length})
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShopFilterSite([])}
-                        >
-                          取消筛选
-                        </Button>
-                      </>
-                    )}
+                    {shopFilterSite.length > 0 && (() => {
+                      const filteredCount = shops.filter((s) => shopFilterSite.includes(s.site)).length;
+                      const unfilteredCount = shops.filter((s) => !shopFilterSite.includes(s.site)).length;
+                      return (
+                        <>
+                          <span className="text-sm font-medium text-blue-600">
+                            {filteredCount} 条结果
+                          </span>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleDeleteFilteredShops}
+                            disabled={shopDeleting || unfilteredCount === 0}
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" />
+                            删除未选中 ({unfilteredCount})
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShopFilterSite([])}
+                          >
+                            取消筛选
+                          </Button>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
                 {loading ? (
