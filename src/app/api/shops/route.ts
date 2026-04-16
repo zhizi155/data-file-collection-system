@@ -29,41 +29,62 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// 批量创建店铺（从Excel导入）
+// 批量创建店铺（从Excel导入）或单个添加
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { shops } = body;
 
-    if (!shops || !Array.isArray(shops)) {
-      return NextResponse.json({ error: "缺少店铺数据" }, { status: 400 });
-    }
-
     const supabase = getSupabaseClient();
 
-    // 格式化数据
-    const formattedShops = shops.map((shop: { name: string; site: string; platform: string; description?: string; export_type?: string }) => ({
-      name: shop.name,
-      site: shop.site,
-      platform: shop.platform,
-      description: shop.description || null,
-      export_type: shop.export_type || null,
-      is_active: true,
-    }));
+    if (shops && Array.isArray(shops)) {
+      // 批量导入
+      const formattedShops = shops.map((shop: { name: string; site: string; platform: string; description?: string; export_type?: string }) => ({
+        name: shop.name,
+        site: shop.site,
+        platform: shop.platform,
+        description: shop.description || null,
+        export_type: shop.export_type || null,
+        is_active: true,
+      }));
 
-    // 先清空现有店铺（可选，根据需求）
-    // await supabase.from("shops").delete().neq("id", "");
+      const { data, error } = await supabase.from("shops").insert(formattedShops).select();
 
-    const { data, error } = await supabase.from("shops").insert(formattedShops).select();
+      if (error) {
+        return NextResponse.json({ error: `导入失败: ${error.message}` }, { status: 500 });
+      }
 
-    if (error) {
-      return NextResponse.json({ error: `导入失败: ${error.message}` }, { status: 500 });
+      return NextResponse.json({ success: true, data, count: data?.length || 0 });
+    } else {
+      // 单个添加
+      const { name, site, platform, description, export_type } = body;
+
+      if (!name || !site || !platform) {
+        return NextResponse.json({ error: "缺少店铺数据" }, { status: 400 });
+      }
+
+      const { data, error } = await supabase
+        .from("shops")
+        .insert({
+          name,
+          site,
+          platform,
+          description: description || null,
+          export_type: export_type || null,
+          is_active: true,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        return NextResponse.json({ error: `添加失败: ${error.message}` }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true, data });
     }
-
-    return NextResponse.json({ success: true, data, count: data?.length || 0 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "导入失败" },
+      { error: error instanceof Error ? error.message : "添加失败" },
       { status: 500 }
     );
   }
