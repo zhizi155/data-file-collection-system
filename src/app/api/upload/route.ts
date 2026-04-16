@@ -154,11 +154,19 @@ export async function POST(request: NextRequest) {
     // 使用 SDK 返回的 key（包含随机后缀，与实际存储路径一致）
     const fileKey = uploadResult;
 
+    // 提取文件扩展名用于构造中文显示名
+    const ext = file.name.split(".").pop() || "";
+
     // 记录到数据库
+    // 注意：SDK 会自动将中文文件名转换为拼音，因此 display_name 使用中文保存类型而非实际存储的文件名
+    const displayName = exportType 
+      ? `${exportType}${ext ? '.' + ext : ''}`
+      : newFileName;
+    
     const { error: insertError } = await supabase.from("uploaded_files").insert({
       original_name: file.name,
       stored_key: fileKey,
-      display_name: newFileName, // 保存命名规则生成的文件名（不含路径）
+      display_name: displayName, // 保存命名规则生成的文件名（不含路径）
       file_size: file.size.toString(),
       mime_type: file.type,
       rule_id: ruleId || null,

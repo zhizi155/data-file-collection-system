@@ -181,12 +181,18 @@ export async function POST(request: NextRequest) {
       expireTime: 86400 * 7,
     });
 
+    // 返回中文显示名（用户选择的保存类型）而不是 SDK 转换后的拼音
+    const ext = fileName.split(".").pop() || "";
+    const displayName = exportType 
+      ? `${exportType}${ext ? '.' + ext : ''}`
+      : newFileName;
+
     return NextResponse.json({
       success: true,
       uploadUrl: uploadUrl,
       downloadUrl: downloadUrl,
       objectKey: objectKey,
-      newFileName: newFileName,
+      newFileName: displayName, // 返回中文显示名
     });
   } catch (error) {
     console.error("生成预签名URL失败:", error);

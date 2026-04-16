@@ -24,14 +24,18 @@ export async function POST(request: NextRequest) {
     }
 
     // 获取文件信息
-    const newFileName = displayName || objectKey.split("/").pop() || originalName;
+    // 注意：如果使用中文 displayName（保存类型），需要构造正确的文件名
+    const ext = (originalName || objectKey).split(".").pop() || "";
+    const finalDisplayName = exportType
+      ? `${exportType}${ext ? '.' + ext : ''}`
+      : (displayName || objectKey.split("/").pop() || originalName);
 
     // 记录到数据库
     const supabase = getSupabaseClient();
     const { error: insertError } = await supabase.from("uploaded_files").insert({
       original_name: originalName,
       stored_key: objectKey,
-      display_name: newFileName, // 保存命名规则生成的文件名（不含路径）
+      display_name: finalDisplayName, // 保存中文保存类型作为显示名
       file_size: fileSize.toString(),
       mime_type: "application/octet-stream",
       rule_id: ruleId || null,
@@ -56,7 +60,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       originalName: originalName,
-      newName: newFileName,
+      newName: finalDisplayName,
       fileKey: objectKey,
       fileUrl: fileUrl,
       fileSize: fileSize,
