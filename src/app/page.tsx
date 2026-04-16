@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchSelect, SearchSelectItem } from "@/components/ui/search-select";
 
 interface Shop {
   id: string;
@@ -320,19 +321,22 @@ export default function UploadPage() {
                 <ShoppingBag className="w-4 h-4" />
                 店铺 <span className="text-red-500">*</span>
               </Label>
-              <Select value={selectedShop} onValueChange={setSelectedShop} disabled={shopLoading}>
-                <SelectTrigger>
-                  <SelectValue placeholder={shopLoading ? "加载中..." : "请选择店铺"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {shops.map((shop) => (
-                    <SelectItem key={shop.id} value={shop.id}>
-                      {shop.name} ({shop.site} - {shop.platform})
-                      {shop.export_type && <span className="ml-2 text-muted-foreground">[{shop.export_type}]</span>}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchSelect
+                value={selectedShop}
+                onValueChange={setSelectedShop}
+                placeholder={shopLoading ? "加载中..." : "请选择店铺"}
+                disabled={shopLoading}
+                searchPlaceholder="搜索店铺名称..."
+                maxDisplayItems={8}
+                className="w-full"
+              >
+                {shops.map((shop) => (
+                  <SearchSelectItem key={shop.id} value={shop.id}>
+                    {shop.name} ({shop.site} - {shop.platform})
+                    {shop.export_type && <span className="ml-2 text-muted-foreground">[{shop.export_type}]</span>}
+                  </SearchSelectItem>
+                ))}
+              </SearchSelect>
               {currentShop && (
                 <p className="text-xs text-slate-500">
                   已选择店铺: {currentShop.name} | 站点: {currentShop.site} | 平台: {currentShop.platform}
