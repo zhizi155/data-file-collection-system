@@ -148,6 +148,11 @@ export default function UploadPage() {
     } finally {
       setUploading(false);
       setUploadProgress(0);
+      // 上传完成后清空文件选择状态，避免按钮被禁用
+      if (!error) {
+        setFile(null);
+        setSelectedExportType("");
+      }
     }
   };
 
