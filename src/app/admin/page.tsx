@@ -122,6 +122,7 @@ export default function AdminPage() {
   const [fileFilterPlatform, setFileFilterPlatform] = useState<string>("all");
   const [fileFilterSite, setFileFilterSite] = useState<string>("all");
   const [fileFilterDateRange, setFileFilterDateRange] = useState<string>("");
+  const [availableDateRanges, setAvailableDateRanges] = useState<string[]>([]); // 所有可用的日期区间
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<string>("");
@@ -202,6 +203,22 @@ export default function AdminPage() {
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
+      // 先获取所有日期区间选项（不带筛选条件）
+      const allParams = new URLSearchParams();
+      allParams.set("limit", "10000");
+      const allRes = await fetch(`/api/files?${allParams.toString()}`);
+      const allData = await allRes.json();
+      if (allData.success && allData.data) {
+        // 提取所有唯一的日期区间
+        const dateRanges = [...new Set(
+          allData.data
+            .map((f: UploadedFile) => f.date_range)
+            .filter(Boolean) as string[]
+        )].sort();
+        setAvailableDateRanges(dateRanges);
+      }
+
+      // 再获取筛选后的数据
       const params = new URLSearchParams();
       if (fileFilterShop !== "all") params.set("shopId", fileFilterShop);
       if (fileFilterPlatform !== "all") params.set("platform", fileFilterPlatform);
@@ -820,13 +837,20 @@ export default function AdminPage() {
                         </SearchSelectItem>
                       ))}
                     </SearchSelect>
-                    <input
-                      type="text"
+                    <SearchSelect
                       value={fileFilterDateRange}
-                      onChange={(e) => setFileFilterDateRange(e.target.value)}
-                      className="px-3 py-2 border rounded-md text-sm bg-background h-9 w-40"
-                      placeholder="日期区间筛选"
-                    />
+                      onValueChange={setFileFilterDateRange}
+                      placeholder="日期区间"
+                      className="min-w-[180px]"
+                      maxDisplayItems={10}
+                    >
+                      <SearchSelectItem value="">全部日期</SearchSelectItem>
+                      {availableDateRanges.map((range) => (
+                        <SearchSelectItem key={range} value={range}>
+                          {range}
+                        </SearchSelectItem>
+                      ))}
+                    </SearchSelect>
                     <Button
                       variant="outline"
                       size="sm"
