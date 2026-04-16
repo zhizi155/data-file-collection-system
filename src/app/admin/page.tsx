@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { SearchSelect, SearchSelectItem } from "@/components/ui/search-select";
 
 interface NamingRule {
   id: string;
@@ -770,42 +771,48 @@ export default function AdminPage() {
                     <CardDescription>查看所有上传文件记录，支持批量导出/下载</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
-                    <select
+                    <SearchSelect
                       value={fileFilterPlatform}
-                      onChange={(e) => setFileFilterPlatform(e.target.value)}
-                      className="px-3 py-2 border rounded-md text-sm bg-background"
+                      onValueChange={setFileFilterPlatform}
+                      placeholder="全部平台"
+                      className="min-w-[120px]"
+                      maxDisplayItems={5}
                     >
-                      <option value="all">全部平台</option>
+                      <SearchSelectItem value="all">全部平台</SearchSelectItem>
                       {[...new Set(shops.map((s) => s.platform))].map((platform) => (
-                        <option key={platform} value={platform}>
+                        <SearchSelectItem key={platform} value={platform}>
                           {platform}
-                        </option>
+                        </SearchSelectItem>
                       ))}
-                    </select>
-                    <select
+                    </SearchSelect>
+                    <SearchSelect
                       value={fileFilterSite}
-                      onChange={(e) => setFileFilterSite(e.target.value)}
-                      className="px-3 py-2 border rounded-md text-sm bg-background"
+                      onValueChange={setFileFilterSite}
+                      placeholder="全部站点"
+                      className="min-w-[120px]"
+                      maxDisplayItems={5}
                     >
-                      <option value="all">全部站点</option>
+                      <SearchSelectItem value="all">全部站点</SearchSelectItem>
                       {[...new Set(shops.map((s) => s.site))].map((site) => (
-                        <option key={site} value={site}>
+                        <SearchSelectItem key={site} value={site}>
                           {site}
-                        </option>
+                        </SearchSelectItem>
                       ))}
-                    </select>
-                    <select
+                    </SearchSelect>
+                    <SearchSelect
                       value={fileFilterShop}
-                      onChange={(e) => setFileFilterShop(e.target.value)}
-                      className="px-3 py-2 border rounded-md text-sm bg-background"
+                      onValueChange={setFileFilterShop}
+                      placeholder="全部店铺"
+                      className="min-w-[150px]"
+                      maxDisplayItems={8}
                     >
-                      <option value="all">全部店铺</option>
+                      <SearchSelectItem value="all">全部店铺</SearchSelectItem>
                       {shops.map((shop) => (
-                        <option key={shop.id} value={shop.id}>
+                        <SearchSelectItem key={shop.id} value={shop.id}>
                           {shop.name}
-                        </option>
+                        </SearchSelectItem>
                       ))}
-                    </select>
+                    </SearchSelect>
                     <Button
                       variant="outline"
                       size="sm"
@@ -997,17 +1004,17 @@ export default function AdminPage() {
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="ruleExportType">关联的文件保存类型</Label>
-                          <select
-                            id="ruleExportType"
+                          <SearchSelect
                             value={ruleForm.export_type}
-                            onChange={(e) => setRuleForm({ ...ruleForm, export_type: e.target.value })}
-                            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                            onValueChange={(val) => setRuleForm({ ...ruleForm, export_type: val })}
+                            placeholder="-- 通用规则（所有类型可用）--"
+                            className="w-full"
                           >
-                            <option value="">-- 通用规则（所有类型可用）--</option>
+                            <SearchSelectItem value="">-- 通用规则（所有类型可用）--</SearchSelectItem>
                             {availableExportTypes.map((type) => (
-                              <option key={type} value={type}>{type}</option>
+                              <SearchSelectItem key={type} value={type}>{type}</SearchSelectItem>
                             ))}
-                          </select>
+                          </SearchSelect>
                           <p className="text-xs text-slate-500">选择该规则关联的保存类型。不选则为通用规则。</p>
                         </div>
                         <div className="space-y-2">
