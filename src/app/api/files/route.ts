@@ -113,11 +113,17 @@ export async function GET(request: NextRequest) {
     
     if (dateRangeList.length > 0) {
       filesWithShops = filesWithShops.filter((file) => {
-        // "未识别"选项：筛选 date_range 为 null 的记录
-        if (includeNone && file.date_range === null) {
-          return true;
+        // 只有"未识别"选项：筛选 date_range 为 null 的记录
+        if (includeNone && filteredDateRanges.length === 0) {
+          return file.date_range === null;
         }
-        // 其他日期区间筛选
+        // 既有"未识别"又有其他筛选条件
+        if (includeNone && filteredDateRanges.length > 0) {
+          // 文件必须：date_range 为 null 或 匹配其他筛选条件之一
+          if (file.date_range === null) return true;
+          return filteredDateRanges.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()));
+        }
+        // 只有其他筛选条件（不含"未识别"）
         if (filteredDateRanges.length > 0) {
           return filteredDateRanges.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()));
         }
@@ -142,15 +148,20 @@ export async function GET(request: NextRequest) {
       const { data: allFiles } = await allQuery;
       const allWithDateRange = allFiles?.map((file) => smartExtractDateRange(file.original_name)) || [];
       filteredTotal = allWithDateRange.filter((dr) => {
-        // "未识别"：date_range 为 null
-        if (includeNone && dr === null) {
-          return true;
+        // 只有"未识别"选项：date_range 为 null
+        if (includeNone && filteredDateRanges.length === 0) {
+          return dr === null;
         }
-        // 其他日期区间筛选
+        // 既有"未识别"又有其他筛选条件
+        if (includeNone && filteredDateRanges.length > 0) {
+          if (dr === null) return true;
+          return filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()));
+        }
+        // 只有其他筛选条件（不含"未识别"）
         if (filteredDateRanges.length > 0) {
           return filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()));
         }
-        return false;
+        return true;
       }).length;
     }
 
