@@ -76,7 +76,8 @@ export async function POST(request: NextRequest) {
     let successCount = 0;
     for (const file of files) {
       const shop = file.shop_id ? shopsMap[file.shop_id] : null;
-      const fileName = file.stored_key.split("/").pop() || file.stored_key;
+      // 优先使用 display_name（命名规则生成的文件名），否则使用原始文件名
+      const fileName = file.display_name || file.original_name;
       const dirPath = `${shop?.site || "未知站点"}/${shop?.platform || "未知平台"}/${shop?.name || "未知店铺"}`;
 
       try {
