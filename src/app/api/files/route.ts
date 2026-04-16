@@ -9,8 +9,7 @@ export async function GET(request: NextRequest) {
     const shopId = searchParams.get("shopId");
     const platform = searchParams.get("platform");
     const site = searchParams.get("site");
-    const dateStart = searchParams.get("dateStart");
-    const dateEnd = searchParams.get("dateEnd");
+    const dateRange = searchParams.get("dateRange"); // 日期区间文本筛选
     const limit = parseInt(searchParams.get("limit") || "100");
     const offset = parseInt(searchParams.get("offset") || "0");
 
@@ -39,6 +38,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 构建查询
     let query = supabase
       .from("uploaded_files")
       .select("*")
@@ -50,29 +50,15 @@ export async function GET(request: NextRequest) {
       query = query.in("shop_id", filterShopIds);
     }
 
-    // 添加日期筛选
-    if (dateStart) {
-      query = query.gte("created_at", `${dateStart}T00:00:00`);
-    }
-    if (dateEnd) {
-      query = query.lte("created_at", `${dateEnd}T23:59:59`);
-    }
-
-    // 获取总数（带筛选条件）
+    // 获取总数
     let countQuery = supabase
       .from("uploaded_files")
       .select("*", { count: "exact", head: true });
-    
+
     if (shopId) {
       countQuery = countQuery.eq("shop_id", shopId);
     } else if (filterShopIds && filterShopIds.length > 0) {
       countQuery = countQuery.in("shop_id", filterShopIds);
-    }
-    if (dateStart) {
-      countQuery = countQuery.gte("created_at", `${dateStart}T00:00:00`);
-    }
-    if (dateEnd) {
-      countQuery = countQuery.lte("created_at", `${dateEnd}T23:59:59`);
     }
 
     const [queryResult, countResult] = await Promise.all([
@@ -80,14 +66,12 @@ export async function GET(request: NextRequest) {
       countQuery,
     ]);
 
-    const data = queryResult.data;
+    let data = queryResult.data;
     const error = queryResult.error;
 
     if (error) {
       return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
     }
-
-    const count = countResult.count || 0;
 
     // 获取店铺信息
     const allShopIds = [...new Set(data?.map((f) => f.shop_id).filter(Boolean) || [])];
@@ -111,16 +95,45 @@ export async function GET(request: NextRequest) {
     }
 
     // 合并数据并添加日期区间识别
-    const filesWithShops = data?.map((file) => ({
+    let filesWithShops = data?.map((file) => ({
       ...file,
       shops: file.shop_id ? shopsMap[file.shop_id] || null : null,
       date_range: smartExtractDateRange(file.original_name),
-    }));
+    })) || [];
+
+    // 日期区间文本筛选（在内存中筛选，因为 date_range 是计算字段）
+    if (dateRange) {
+      const searchText = dateRange.toLowerCase();
+      filesWithShops = filesWithShops.filter((file) =>
+        file.date_range?.toLowerCase().includes(searchText)
+      );
+    }
+
+    // 获取过滤后的总数（用于分页）
+    let filteredTotal = countResult.count || 0;
+    if (dateRange) {
+      // 重新计算符合条件的总数
+      let allQuery = supabase
+        .from("uploaded_files")
+        .select("original_name", { count: "exact", head: true });
+
+      if (shopId) {
+        allQuery = allQuery.eq("shop_id", shopId);
+      } else if (filterShopIds && filterShopIds.length > 0) {
+        allQuery = allQuery.in("shop_id", filterShopIds);
+      }
+
+      const { data: allFiles } = await allQuery;
+      const allWithDateRange = allFiles?.map((file) => smartExtractDateRange(file.original_name)) || [];
+      filteredTotal = allWithDateRange.filter((dr) =>
+        dr?.toLowerCase().includes(dateRange.toLowerCase())
+      ).length;
+    }
 
     return NextResponse.json({
       success: true,
       data: filesWithShops,
-      total: count || 0,
+      total: filteredTotal,
     });
   } catch (error) {
     return NextResponse.json(
