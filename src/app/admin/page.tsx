@@ -146,6 +146,9 @@ export default function AdminPage() {
   const [importingShops, setImportingShops] = useState(false);
   const [shopPreview, setShopPreview] = useState<{ site: string; platform: string; name: string; export_type?: string }[]>([]);
   const [shopFilterSite, setShopFilterSite] = useState<string[]>([]); // 店铺列表站点筛选
+  const [selectedShops, setSelectedShops] = useState<Set<string>>(new Set()); // 批量选择的店铺
+  const [batchDeleteShopOpen, setBatchDeleteShopOpen] = useState(false);
+  const [shopBatchDeleting, setShopBatchDeleting] = useState(false);
 
   // 变量模态框状态
   const [varModalOpen, setVarModalOpen] = useState(false);
@@ -617,6 +620,27 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : "删除失败");
     } finally {
       setShopDeleting(false);
+    }
+  };
+
+  const handleBatchDeleteShops = async () => {
+    if (selectedShops.size === 0) return;
+    setShopBatchDeleting(true);
+    try {
+      const ids = Array.from(selectedShops);
+      const res = await fetch(`/api/shops?ids=${ids.join(",")}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        setSelectedShops(new Set());
+        setBatchDeleteShopOpen(false);
+        loadData();
+      } else {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "批量删除失败");
+    } finally {
+      setShopBatchDeleting(false);
     }
   };
 
@@ -1285,72 +1309,150 @@ export default function AdminPage() {
                 ) : shops.length === 0 ? (
                   <div className="text-center py-8 text-slate-500">暂无店铺，点击上方按钮添加</div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>店铺名</TableHead>
-                        <TableHead>站点</TableHead>
-                        <TableHead>平台</TableHead>
-                        <TableHead>导出类型</TableHead>
-                        <TableHead>状态</TableHead>
-                        <TableHead>创建时间</TableHead>
-                        <TableHead className="text-right">操作</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(() => {
-                        const filteredShops = shopFilterSite.length > 0
-                          ? shops.filter((s) => shopFilterSite.includes(s.site))
-                          : shops;
-                        return filteredShops.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={7} className="text-center py-8 text-slate-500">
-                              没有匹配筛选条件的店铺
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          filteredShops.map((shop) => (
-                            <TableRow key={shop.id}>
-                              <TableCell className="font-medium">{shop.name}</TableCell>
-                              <TableCell><Badge variant="outline">{shop.site}</Badge></TableCell>
-                              <TableCell><Badge variant="secondary">{shop.platform}</Badge></TableCell>
-                              <TableCell>
-                                {shop.export_type ? (
-                                  <Badge variant="default">{shop.export_type}</Badge>
-                                ) : (
-                                  <span className="text-slate-400 text-sm">-</span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Switch checked={shop.is_active} onCheckedChange={() => handleToggleShop(shop)} />
-                                  <span className={`text-xs ${shop.is_active ? "text-green-600" : "text-slate-400"}`}>{shop.is_active ? "启用" : "禁用"}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-slate-500 text-sm">{formatDate(shop.created_at)}</TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => openShopModal(shop)}><Edit2 className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>编辑</TooltipContent></Tooltip>
-                                  <Dialog open={deleteShopId === shop.id} onOpenChange={(o) => !o && setDeleteShopId(null)}>
-                                    <DialogTrigger asChild>
-                                      <Button variant="ghost" size="icon" onClick={() => setDeleteShopId(shop.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                      <DialogHeader><DialogTitle>确认删除</DialogTitle><DialogDescription>确定要删除店铺 &quot;{shop.name}&quot; 吗？</DialogDescription></DialogHeader>
-                                      <DialogFooter>
-                                        <Button variant="outline" onClick={() => setDeleteShopId(null)}>取消</Button>
-                                        <Button variant="destructive" onClick={handleDeleteShop} disabled={shopDeleting}>{shopDeleting ? "删除中..." : "删除"}</Button>
-                                      </DialogFooter>
-                                    </DialogContent>
-                                  </Dialog>
-                                </div>
+                  <>
+                    {/* 批量操作工具栏 */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-slate-500">
+                          共 {shops.filter((s) => shopFilterSite.length === 0 || shopFilterSite.includes(s.site)).length} 个店铺
+                          {selectedShops.size > 0 && ` | 已选择 ${selectedShops.size} 个`}
+                        </span>
+                      </div>
+                      {selectedShops.size > 0 && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setBatchDeleteShopOpen(true)}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          批量删除 ({selectedShops.size})
+                        </Button>
+                      )}
+                    </div>
+                    {/* 批量删除确认弹窗 */}
+                    <Dialog open={batchDeleteShopOpen} onOpenChange={setBatchDeleteShopOpen}>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>确认批量删除</DialogTitle>
+                          <DialogDescription>
+                            确定要删除选中的 {selectedShops.size} 个店铺吗？此操作不可撤销。
+                          </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setBatchDeleteShopOpen(false)}>取消</Button>
+                          <Button variant="destructive" onClick={handleBatchDeleteShops} disabled={shopBatchDeleting}>
+                            {shopBatchDeleting ? "删除中..." : "确认删除"}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-10">
+                            <input
+                              type="checkbox"
+                              checked={(() => {
+                                const filteredShops = shopFilterSite.length > 0
+                                  ? shops.filter((s) => shopFilterSite.includes(s.site))
+                                  : shops;
+                                return filteredShops.length > 0 && filteredShops.every((s) => selectedShops.has(s.id));
+                              })()}
+                              onChange={(e) => {
+                                const filteredShops = shopFilterSite.length > 0
+                                  ? shops.filter((s) => shopFilterSite.includes(s.site))
+                                  : shops;
+                                if (e.target.checked) {
+                                  setSelectedShops(new Set([...selectedShops, ...filteredShops.map((s) => s.id)]));
+                                } else {
+                                  const newSelected = new Set(selectedShops);
+                                  filteredShops.forEach((s) => newSelected.delete(s.id));
+                                  setSelectedShops(newSelected);
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-gray-300"
+                            />
+                          </TableHead>
+                          <TableHead>店铺名</TableHead>
+                          <TableHead>站点</TableHead>
+                          <TableHead>平台</TableHead>
+                          <TableHead>导出类型</TableHead>
+                          <TableHead>状态</TableHead>
+                          <TableHead>创建时间</TableHead>
+                          <TableHead className="text-right">操作</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(() => {
+                          const filteredShops = shopFilterSite.length > 0
+                            ? shops.filter((s) => shopFilterSite.includes(s.site))
+                            : shops;
+                          return filteredShops.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={8} className="text-center py-8 text-slate-500">
+                                没有匹配筛选条件的店铺
                               </TableCell>
                             </TableRow>
-                          ))
-                        );
-                      })()}
-                    </TableBody>
-                  </Table>
+                          ) : (
+                            filteredShops.map((shop) => (
+                              <TableRow key={shop.id}>
+                                <TableCell>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedShops.has(shop.id)}
+                                    onChange={(e) => {
+                                      const newSelected = new Set(selectedShops);
+                                      if (e.target.checked) {
+                                        newSelected.add(shop.id);
+                                      } else {
+                                        newSelected.delete(shop.id);
+                                      }
+                                      setSelectedShops(newSelected);
+                                    }}
+                                    className="w-4 h-4 rounded border-gray-300"
+                                  />
+                                </TableCell>
+                                <TableCell className="font-medium">{shop.name}</TableCell>
+                                <TableCell><Badge variant="outline">{shop.site}</Badge></TableCell>
+                                <TableCell><Badge variant="secondary">{shop.platform}</Badge></TableCell>
+                                <TableCell>
+                                  {shop.export_type ? (
+                                    <Badge variant="default">{shop.export_type}</Badge>
+                                  ) : (
+                                    <span className="text-slate-400 text-sm">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Switch checked={shop.is_active} onCheckedChange={() => handleToggleShop(shop)} />
+                                    <span className={`text-xs ${shop.is_active ? "text-green-600" : "text-slate-400"}`}>{shop.is_active ? "启用" : "禁用"}</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-slate-500 text-sm">{formatDate(shop.created_at)}</TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => openShopModal(shop)}><Edit2 className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>编辑</TooltipContent></Tooltip>
+                                    <Dialog open={deleteShopId === shop.id} onOpenChange={(o) => !o && setDeleteShopId(null)}>
+                                      <DialogTrigger asChild>
+                                        <Button variant="ghost" size="icon" onClick={() => setDeleteShopId(shop.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
+                                      </DialogTrigger>
+                                      <DialogContent>
+                                        <DialogHeader><DialogTitle>确认删除</DialogTitle><DialogDescription>确定要删除店铺 &quot;{shop.name}&quot; 吗？</DialogDescription></DialogHeader>
+                                        <DialogFooter>
+                                          <Button variant="outline" onClick={() => setDeleteShopId(null)}>取消</Button>
+                                          <Button variant="destructive" onClick={handleDeleteShop} disabled={shopDeleting}>{shopDeleting ? "删除中..." : "删除"}</Button>
+                                        </DialogFooter>
+                                      </DialogContent>
+                                    </Dialog>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          );
+                        })()}
+                      </TableBody>
+                    </Table>
+                  </>
                 )}
               </CardContent>
             </Card>

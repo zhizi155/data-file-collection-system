@@ -113,6 +113,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
+    const ids = searchParams.get("ids"); // 批量删除，多个ID用逗号分隔
     const clearAll = searchParams.get("clearAll") === "true";
 
     const supabase = getSupabaseClient();
@@ -122,6 +123,16 @@ export async function DELETE(request: NextRequest) {
       const { error } = await supabase.from("shops").delete().neq("id", "");
       if (error) {
         return NextResponse.json({ error: `清空失败: ${error.message}` }, { status: 500 });
+      }
+    } else if (ids) {
+      // 批量删除
+      const idArray = ids.split(",").filter(Boolean);
+      if (idArray.length === 0) {
+        return NextResponse.json({ error: "缺少店铺ID" }, { status: 400 });
+      }
+      const { error } = await supabase.from("shops").delete().in("id", idArray);
+      if (error) {
+        return NextResponse.json({ error: `批量删除失败: ${error.message}` }, { status: 500 });
       }
     } else if (id) {
       const { error } = await supabase.from("shops").delete().eq("id", id);
