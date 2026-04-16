@@ -107,16 +107,16 @@ export async function GET(request: NextRequest) {
     })) || [];
 
     // 日期区间文本筛选（在内存中筛选，因为 date_range 是计算字段）
-    if (dateRange) {
-      const searchText = dateRange.toLowerCase();
+    const dateRangeList = dateRange ? dateRange.split(",").filter(Boolean) : [];
+    if (dateRangeList.length > 0) {
       filesWithShops = filesWithShops.filter((file) =>
-        file.date_range?.toLowerCase().includes(searchText)
+        dateRangeList.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()))
       );
     }
 
     // 获取过滤后的总数（用于分页）
     let filteredTotal = countResult.count || 0;
-    if (dateRange) {
+    if (dateRangeList.length > 0) {
       // 重新计算符合条件的总数
       let allQuery = supabase
         .from("uploaded_files")
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
       const { data: allFiles } = await allQuery;
       const allWithDateRange = allFiles?.map((file) => smartExtractDateRange(file.original_name)) || [];
       filteredTotal = allWithDateRange.filter((dr) =>
-        dr?.toLowerCase().includes(dateRange.toLowerCase())
+        dateRangeList.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))
       ).length;
     }
 
