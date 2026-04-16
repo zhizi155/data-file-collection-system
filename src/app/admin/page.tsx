@@ -145,6 +145,7 @@ export default function AdminPage() {
   const [shopDeleting, setShopDeleting] = useState(false);
   const [importingShops, setImportingShops] = useState(false);
   const [shopPreview, setShopPreview] = useState<{ site: string; platform: string; name: string; export_type?: string }[]>([]);
+  const [shopFilterSite, setShopFilterSite] = useState<string[]>([]); // 店铺列表站点筛选
 
   // 变量模态框状态
   const [varModalOpen, setVarModalOpen] = useState(false);
@@ -1252,6 +1253,33 @@ export default function AdminPage() {
                 </div>
               </CardHeader>
               <CardContent>
+                {/* 店铺列表筛选器 */}
+                {shops.length > 0 && (
+                  <div className="flex items-center gap-2 mb-4 flex-wrap">
+                    <span className="text-sm text-slate-500">筛选:</span>
+                    <SearchSelect
+                      value={shopFilterSite}
+                      onValueChange={setShopFilterSite as (value: string | string[]) => void}
+                      placeholder="全部站点"
+                      className="min-w-[120px]"
+                      maxDisplayItems={5}
+                      multiple
+                    >
+                      {[...new Set(shops.map((s) => s.site))].map((site) => (
+                        <SearchSelectItem key={site} value={site}>{site}</SearchSelectItem>
+                      ))}
+                    </SearchSelect>
+                    {shopFilterSite.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShopFilterSite([])}
+                      >
+                        清除筛选
+                      </Button>
+                    )}
+                  </div>
+                )}
                 {loading ? (
                   <div className="text-center py-8 text-slate-500">加载中...</div>
                 ) : shops.length === 0 ? (
@@ -1270,44 +1298,57 @@ export default function AdminPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {shops.map((shop) => (
-                        <TableRow key={shop.id}>
-                          <TableCell className="font-medium">{shop.name}</TableCell>
-                          <TableCell><Badge variant="outline">{shop.site}</Badge></TableCell>
-                          <TableCell><Badge variant="secondary">{shop.platform}</Badge></TableCell>
-                          <TableCell>
-                            {shop.export_type ? (
-                              <Badge variant="default">{shop.export_type}</Badge>
-                            ) : (
-                              <span className="text-slate-400 text-sm">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Switch checked={shop.is_active} onCheckedChange={() => handleToggleShop(shop)} />
-                              <span className={`text-xs ${shop.is_active ? "text-green-600" : "text-slate-400"}`}>{shop.is_active ? "启用" : "禁用"}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-slate-500 text-sm">{formatDate(shop.created_at)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => openShopModal(shop)}><Edit2 className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>编辑</TooltipContent></Tooltip>
-                              <Dialog open={deleteShopId === shop.id} onOpenChange={(o) => !o && setDeleteShopId(null)}>
-                                <DialogTrigger asChild>
-                                  <Button variant="ghost" size="icon" onClick={() => setDeleteShopId(shop.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
-                                </DialogTrigger>
-                                <DialogContent>
-                                  <DialogHeader><DialogTitle>确认删除</DialogTitle><DialogDescription>确定要删除店铺 &quot;{shop.name}&quot; 吗？</DialogDescription></DialogHeader>
-                                  <DialogFooter>
-                                    <Button variant="outline" onClick={() => setDeleteShopId(null)}>取消</Button>
-                                    <Button variant="destructive" onClick={handleDeleteShop} disabled={shopDeleting}>{shopDeleting ? "删除中..." : "删除"}</Button>
-                                  </DialogFooter>
-                                </DialogContent>
-                              </Dialog>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {(() => {
+                        const filteredShops = shopFilterSite.length > 0
+                          ? shops.filter((s) => shopFilterSite.includes(s.site))
+                          : shops;
+                        return filteredShops.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+                              没有匹配筛选条件的店铺
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredShops.map((shop) => (
+                            <TableRow key={shop.id}>
+                              <TableCell className="font-medium">{shop.name}</TableCell>
+                              <TableCell><Badge variant="outline">{shop.site}</Badge></TableCell>
+                              <TableCell><Badge variant="secondary">{shop.platform}</Badge></TableCell>
+                              <TableCell>
+                                {shop.export_type ? (
+                                  <Badge variant="default">{shop.export_type}</Badge>
+                                ) : (
+                                  <span className="text-slate-400 text-sm">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Switch checked={shop.is_active} onCheckedChange={() => handleToggleShop(shop)} />
+                                  <span className={`text-xs ${shop.is_active ? "text-green-600" : "text-slate-400"}`}>{shop.is_active ? "启用" : "禁用"}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-slate-500 text-sm">{formatDate(shop.created_at)}</TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => openShopModal(shop)}><Edit2 className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>编辑</TooltipContent></Tooltip>
+                                  <Dialog open={deleteShopId === shop.id} onOpenChange={(o) => !o && setDeleteShopId(null)}>
+                                    <DialogTrigger asChild>
+                                      <Button variant="ghost" size="icon" onClick={() => setDeleteShopId(shop.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                      <DialogHeader><DialogTitle>确认删除</DialogTitle><DialogDescription>确定要删除店铺 &quot;{shop.name}&quot; 吗？</DialogDescription></DialogHeader>
+                                      <DialogFooter>
+                                        <Button variant="outline" onClick={() => setDeleteShopId(null)}>取消</Button>
+                                        <Button variant="destructive" onClick={handleDeleteShop} disabled={shopDeleting}>{shopDeleting ? "删除中..." : "删除"}</Button>
+                                      </DialogFooter>
+                                    </DialogContent>
+                                  </Dialog>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        );
+                      })()}
                     </TableBody>
                   </Table>
                 )}
