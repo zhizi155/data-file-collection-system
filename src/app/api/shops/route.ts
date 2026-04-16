@@ -39,12 +39,13 @@ export async function POST(request: NextRequest) {
 
     if (shops && Array.isArray(shops)) {
       // 批量导入
-      const formattedShops = shops.map((shop: { name: string; site: string; platform: string; description?: string; export_type?: string }) => ({
+      const formattedShops = shops.map((shop: { name: string; site: string; platform: string; description?: string; export_type?: string; manager?: string }) => ({
         name: shop.name,
         site: shop.site,
         platform: shop.platform,
         description: shop.description || null,
         export_type: shop.export_type || null,
+        manager: shop.manager || null,
         is_active: true,
       }));
 
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, data, count: data?.length || 0 });
     } else {
       // 单个添加
-      const { name, site, platform, description, export_type } = body;
+      const { name, site, platform, description, export_type, manager } = body;
 
       if (!name || !site || !platform) {
         return NextResponse.json({ error: "缺少店铺数据" }, { status: 400 });
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
           platform,
           description: description || null,
           export_type: export_type || null,
+          manager: manager || null,
           is_active: true,
         })
         .select()
@@ -94,7 +96,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, name, site, platform, description, is_active, export_type } = body;
+    const { id, name, site, platform, description, is_active, export_type, manager } = body;
 
     if (!id) {
       return NextResponse.json({ error: "缺少店铺ID" }, { status: 400 });
@@ -107,6 +109,7 @@ export async function PUT(request: NextRequest) {
     if (description !== undefined) updates.description = description;
     if (is_active !== undefined) updates.is_active = is_active;
     if (export_type !== undefined) updates.export_type = export_type;
+    if (manager !== undefined) updates.manager = manager;
 
     const supabase = getSupabaseClient();
     const { data, error } = await supabase

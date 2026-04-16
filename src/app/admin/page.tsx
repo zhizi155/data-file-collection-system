@@ -75,6 +75,7 @@ interface Shop {
   platform: string;
   description: string | null;
   export_type: string | null;
+  manager: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -148,12 +149,12 @@ export default function AdminPage() {
   // 店铺模态框状态
   const [shopModalOpen, setShopModalOpen] = useState(false);
   const [editingShop, setEditingShop] = useState<Shop | null>(null);
-  const [shopForm, setShopForm] = useState({ name: "", site: "", platform: "", description: "", export_type: "" });
+  const [shopForm, setShopForm] = useState({ name: "", site: "", platform: "", description: "", export_type: "", manager: "" });
   const [shopSaving, setShopSaving] = useState(false);
   const [deleteShopId, setDeleteShopId] = useState<string | null>(null);
   const [shopDeleting, setShopDeleting] = useState(false);
   const [importingShops, setImportingShops] = useState(false);
-  const [shopPreview, setShopPreview] = useState<{ site: string; platform: string; name: string; export_type?: string }[]>([]);
+  const [shopPreview, setShopPreview] = useState<{ site: string; platform: string; name: string; export_type?: string; manager?: string }[]>([]);
   const [shopFilterSite, setShopFilterSite] = useState<string[]>([]); // 店铺列表站点筛选
   const [selectedShops, setSelectedShops] = useState<Set<string>>(new Set()); // 批量选择的店铺
   const [batchDeleteShopOpen, setBatchDeleteShopOpen] = useState(false);
@@ -689,10 +690,10 @@ export default function AdminPage() {
   const openShopModal = (shop?: Shop) => {
     if (shop) {
       setEditingShop(shop);
-      setShopForm({ name: shop.name, site: shop.site, platform: shop.platform, description: shop.description || "", export_type: shop.export_type || "" });
+      setShopForm({ name: shop.name, site: shop.site, platform: shop.platform, description: shop.description || "", export_type: shop.export_type || "", manager: shop.manager || "" });
     } else {
       setEditingShop(null);
-      setShopForm({ name: "", site: "", platform: "", description: "", export_type: "" });
+      setShopForm({ name: "", site: "", platform: "", description: "", export_type: "", manager: "" });
     }
     setShopPreview([]);
     setShopModalOpen(true);
@@ -750,8 +751,8 @@ export default function AdminPage() {
         const url = editingShop ? "/api/shops" : "/api/shops";
         const method = editingShop ? "PUT" : "POST";
         const body = editingShop 
-          ? { id: editingShop.id, ...shopForm, export_type: shopForm.export_type || null } 
-          : { ...shopForm, export_type: shopForm.export_type || null };
+          ? { id: editingShop.id, ...shopForm, export_type: shopForm.export_type || null, manager: shopForm.manager || null } 
+          : { ...shopForm, export_type: shopForm.export_type || null, manager: shopForm.manager || null };
         const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const data = await res.json();
         if (data.success) {
@@ -1412,7 +1413,7 @@ export default function AdminPage() {
                               <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-4 text-center">
                                 <Upload className="w-8 h-8 mx-auto mb-2 text-slate-400" />
                                 <p className="text-sm text-slate-500 mb-2">拖拽或点击上传 Excel 文件</p>
-                                <p className="text-xs text-slate-400 mb-2">前三列：站点、平台、店铺名；D列为导出类型（可选）</p>
+                                <p className="text-xs text-slate-400 mb-1">A-C列：站点、平台、店铺名；D列为导出类型（可选）；E列为负责人（可选）</p>
                                 <p className="text-xs text-slate-400">导出类型示例：订单、收入、广告费</p>
                                 <input type="file" accept=".xlsx,.xls" onChange={handleShopFileChange} className="hidden" id="shop-file" />
                                 <label htmlFor="shop-file">
@@ -1429,6 +1430,7 @@ export default function AdminPage() {
                                       <p key={i} className="text-slate-600 dark:text-slate-400">
                                         {s.site} | {s.platform} | {s.name}
                                         {s.export_type && <span className="ml-2 text-blue-600">类型: {s.export_type}</span>}
+                                        {s.manager && <span className="ml-2 text-purple-600">负责人: {s.manager}</span>}
                                       </p>
                                     ))}
                                     {shopPreview.length > 5 && <p className="text-slate-400">...还有 {shopPreview.length - 5} 条</p>}
@@ -1462,6 +1464,12 @@ export default function AdminPage() {
                             <div className="space-y-2">
                               <Label htmlFor="shopExportType">导出类型</Label>
                               <Input id="shopExportType" value={shopForm.export_type} onChange={(e) => setShopForm({ ...shopForm, export_type: e.target.value })} placeholder="如: 订单、收入、广告费" />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="shopManager">负责人</Label>
+                              <Input id="shopManager" value={shopForm.manager} onChange={(e) => setShopForm({ ...shopForm, manager: e.target.value })} placeholder="请输入负责人" />
                             </div>
                           </div>
                         </div>
@@ -1575,6 +1583,7 @@ export default function AdminPage() {
                           <TableHead>站点</TableHead>
                           <TableHead>平台</TableHead>
                           <TableHead>导出类型</TableHead>
+                          <TableHead>负责人</TableHead>
                           <TableHead>状态</TableHead>
                           <TableHead>创建时间</TableHead>
                           <TableHead className="text-right">操作</TableHead>
@@ -1587,7 +1596,7 @@ export default function AdminPage() {
                             : shops;
                           return filteredShops.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={8} className="text-center py-8 text-slate-500">
+                              <TableCell colSpan={9} className="text-center py-8 text-slate-500">
                                 没有匹配筛选条件的店铺
                               </TableCell>
                             </TableRow>
@@ -1616,6 +1625,13 @@ export default function AdminPage() {
                                 <TableCell>
                                   {shop.export_type ? (
                                     <Badge variant="default">{shop.export_type}</Badge>
+                                  ) : (
+                                    <span className="text-slate-400 text-sm">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {shop.manager ? (
+                                    <span className="text-sm">{shop.manager}</span>
                                   ) : (
                                     <span className="text-slate-400 text-sm">-</span>
                                   )}
@@ -1961,6 +1977,7 @@ function CollectionProgressTable() {
     shopName: string;
     shopSite: string;
     shopPlatform: string;
+    shopManager: string | null;
     exportType: string;
     uploadCount: number;
     lastUploadTime: string | null;
@@ -1996,6 +2013,7 @@ function CollectionProgressTable() {
           shopName: string;
           shopSite: string;
           shopPlatform: string;
+          shopManager: string | null;
           exportType: string;
           uploadCount: number;
           lastUploadTime: string | null;
@@ -2021,6 +2039,7 @@ function CollectionProgressTable() {
               shopName: shop.name,
               shopSite: shop.site,
               shopPlatform: shop.platform,
+              shopManager: shop.manager || null,
               exportType: exportType,
               uploadCount: relatedFiles.length,
               lastUploadTime: relatedFiles.length > 0 
@@ -2152,6 +2171,7 @@ function CollectionProgressTable() {
                 <TableHead>店铺名称</TableHead>
                 <TableHead>站点</TableHead>
                 <TableHead>平台</TableHead>
+                <TableHead>负责人</TableHead>
                 <TableHead>文件保存类型</TableHead>
                 <TableHead>是否上传</TableHead>
                 <TableHead>上传数量</TableHead>
@@ -2167,6 +2187,13 @@ function CollectionProgressTable() {
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{item.shopPlatform}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    {item.shopManager ? (
+                      <span className="text-sm">{item.shopManager}</span>
+                    ) : (
+                      <span className="text-slate-400 text-sm">-</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant={item.uploadCount > 0 ? "default" : "secondary"}>

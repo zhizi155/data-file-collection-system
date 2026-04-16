@@ -14,6 +14,7 @@ interface Shop {
   site: string;
   platform: string;
   export_type: string | null;
+  manager: string | null;
   is_active: boolean;
 }
 
@@ -362,13 +363,14 @@ export default function UploadPage() {
                   <SearchSelectItem key={shop.id} value={shop.id}>
                     {shop.name} ({shop.site} - {shop.platform})
                     {shop.export_type && <span className="ml-2 text-muted-foreground">[{shop.export_type}]</span>}
+                    {shop.manager && <span className="ml-2 text-blue-500">负责人: {shop.manager}</span>}
                   </SearchSelectItem>
                 ))}
               </SearchSelect>
               {currentShops.length > 0 && (
                 <p className="text-xs text-slate-500">
                   已选择 {currentShops.length} 个店铺:
-                  {currentShops.map((s) => `${s.name}(${s.site}-${s.platform})`).join(", ")}
+                  {currentShops.map((s) => `${s.name}(${s.site}-${s.platform})${s.manager ? ` - 负责人:${s.manager}` : ""}`).join(", ")}
                 </p>
               )}
               {shops.length === 0 && !shopLoading && (
