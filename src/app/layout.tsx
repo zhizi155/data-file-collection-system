@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   authors: [{ name: 'Coze Code Team', url: 'https://code.coze.cn' }],
   generator: 'Coze Code',
   icons: {
-    icon: 'https://code.coze.cn/api/sandbox/coze_coding/file/proxy?expire_time=-1&file_path=assets%2Fimage.png&nonce=4cc95c5a-ff4e-4c17-8a97-877e766e75ef&project_id=7628506190187692082&sign=495843f58c38fb01bb455e3d2594c4c011c0291ae01561e6637d17712b6820ce',
+    icon: '/favicon.png',
   },
   openGraph: {
     title: '扣子编程 | 你的 AI 工程师已就位',
