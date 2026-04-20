@@ -24,9 +24,9 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: 'Coze Code Team', url: 'https://code.coze.cn' }],
   generator: 'Coze Code',
-  // icons: {
-  //   icon: '',
-  // },
+  icons: {
+    icon: '/favicon.png',
+  },
   openGraph: {
     title: '扣子编程 | 你的 AI 工程师已就位',
     description:
