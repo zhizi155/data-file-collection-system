@@ -255,9 +255,9 @@ export function smartExtractDateRange(filename: string): string | null {
     return `${formatDate(startDate)}~${formatDate(endDate)}`;
   }
 
-  // 2. 尝试匹配 ISO 格式的区间 (2024-01-01~2024-01-07 或 20240101~20240107)
+  // 2. 尝试匹配 ISO 格式的区间 (2024-01-01~2024-01-07 或 2024-01-01_2024-01-07 或 20240101~20240107)
   const isoRangeMatch = nameWithoutExt.match(
-    /(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})\s*[~-至到]\s*(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/
+    /(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})\s*[~-至到_]\s*(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/
   );
   if (isoRangeMatch) {
     const startDate = new Date(
