@@ -255,7 +255,25 @@ export function smartExtractDateRange(filename: string): string | null {
     return `${formatDate(startDate)}~${formatDate(endDate)}`;
   }
 
-  // 2. 尝试匹配 ISO 格式的区间 (2024-01-01~2024-01-07 或 2024-01-01_2024-01-07 或 20240101~20240107)
+  // 2. 尝试匹配混合分隔符的日期区间 (如 2026_03_01-2026_03_31 或 2026_03_01_2026_03_31)
+  const mixedRangeMatch = nameWithoutExt.match(
+    /(\d{4})[_.](\d{2})[_.](\d{2})\s*[-~至到]\s*(\d{4})[_.](\d{2})[_.](\d{2})/
+  );
+  if (mixedRangeMatch) {
+    const startDate = new Date(
+      parseInt(mixedRangeMatch[1]),
+      parseInt(mixedRangeMatch[2]) - 1,
+      parseInt(mixedRangeMatch[3])
+    );
+    const endDate = new Date(
+      parseInt(mixedRangeMatch[4]),
+      parseInt(mixedRangeMatch[5]) - 1,
+      parseInt(mixedRangeMatch[6])
+    );
+    return `${formatDate(startDate)}~${formatDate(endDate)}`;
+  }
+
+  // 3. 尝试匹配 ISO 格式的区间 (2024-01-01~2024-01-07 或 2024-01-01_2024-01-07 或 20240101~20240107)
   const isoRangeMatch = nameWithoutExt.match(
     /(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})\s*[~-至到_]\s*(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/
   );
@@ -273,7 +291,7 @@ export function smartExtractDateRange(filename: string): string | null {
     return `${formatDate(startDate)}~${formatDate(endDate)}`;
   }
 
-  // 3. 尝试匹配纯数字的日期区间 (如 20240101_20240107 或 20240101-20240107)
+  // 4. 尝试匹配纯数字的日期区间 (如 20240101_20240107 或 20240101-20240107)
   // 注意：要在 extractDates 之前检查，避免去重后丢失区间信息
   const compactRangeMatch = nameWithoutExt.match(/(\d{8})\s*[~_至到-]\s*(\d{8})/);
   if (compactRangeMatch) {
@@ -286,7 +304,7 @@ export function smartExtractDateRange(filename: string): string | null {
     }
   }
 
-  // 4. 尝试匹配其他格式的日期区间和单个日期
+  // 5. 尝试匹配其他格式的日期区间和单个日期
   const dates = extractDates(nameWithoutExt);
   if (dates.length >= 1) {
     // 去重并排序
