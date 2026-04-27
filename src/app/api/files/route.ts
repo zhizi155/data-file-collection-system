@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
     const platform = searchParams.get("platform");
     const site = searchParams.get("site");
     const dateRange = searchParams.get("dateRange"); // 日期区间文本筛选
+    const displayName = searchParams.get("displayName"); // 保存文件名筛选
     const limit = parseInt(searchParams.get("limit") || "100");
     const offset = parseInt(searchParams.get("offset") || "0");
 
@@ -131,13 +132,38 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // 保存文件名筛选（在内存中筛选）
+    const displayNameList = displayName ? displayName.split(",").filter(Boolean) : [];
+    const includeNoneDisplay = displayNameList.includes("__NONE__");
+    const filteredDisplayNames = displayNameList.filter((dn) => dn !== "__NONE__");
+    
+    if (displayNameList.length > 0) {
+      filesWithShops = filesWithShops.filter((file) => {
+        const fileDisplayName = file.display_name || null;
+        // 只有"未识别"选项：筛选 display_name 为 null 的记录
+        if (includeNoneDisplay && filteredDisplayNames.length === 0) {
+          return fileDisplayName === null;
+        }
+        // 既有"未识别"又有其他筛选条件
+        if (includeNoneDisplay && filteredDisplayNames.length > 0) {
+          if (fileDisplayName === null) return true;
+          return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
+        }
+        // 只有其他筛选条件（不含"未识别"）
+        if (filteredDisplayNames.length > 0) {
+          return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
+        }
+        return true;
+      });
+    }
+
     // 获取过滤后的总数（用于分页）
     let filteredTotal = countResult.count || 0;
-    if (dateRangeList.length > 0) {
+    if (dateRangeList.length > 0 || displayNameList.length > 0) {
       // 重新计算符合条件的总数
       let allQuery = supabase
         .from("uploaded_files")
-        .select("original_name", { count: "exact", head: true });
+        .select("original_name, display_name", { count: "exact", head: true });
 
       if (shopIdList.length > 0) {
         allQuery = allQuery.in("shop_id", shopIdList);
@@ -146,21 +172,33 @@ export async function GET(request: NextRequest) {
       }
 
       const { data: allFiles } = await allQuery;
-      const allWithDateRange = allFiles?.map((file) => smartExtractDateRange(file.original_name)) || [];
-      filteredTotal = allWithDateRange.filter((dr) => {
-        // 只有"未识别"选项：date_range 为 null
-        if (includeNone && filteredDateRanges.length === 0) {
-          return dr === null;
+      
+      // 过滤逻辑
+      filteredTotal = (allFiles || []).filter((file) => {
+        // 日期区间筛选
+        if (dateRangeList.length > 0) {
+          const dr = smartExtractDateRange(file.original_name);
+          if (includeNone && filteredDateRanges.length === 0) {
+            if (dr !== null) return false;
+          } else if (includeNone && filteredDateRanges.length > 0) {
+            if (dr !== null && !filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))) return false;
+          } else {
+            if (!filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))) return false;
+          }
         }
-        // 既有"未识别"又有其他筛选条件
-        if (includeNone && filteredDateRanges.length > 0) {
-          if (dr === null) return true;
-          return filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()));
+        
+        // 保存文件名筛选
+        if (displayNameList.length > 0) {
+          const dn = file.display_name || null;
+          if (includeNoneDisplay && filteredDisplayNames.length === 0) {
+            if (dn !== null) return false;
+          } else if (includeNoneDisplay && filteredDisplayNames.length > 0) {
+            if (dn !== null && !filteredDisplayNames.some((d) => dn?.toLowerCase().includes(d.toLowerCase()))) return false;
+          } else {
+            if (!filteredDisplayNames.some((d) => dn?.toLowerCase().includes(d.toLowerCase()))) return false;
+          }
         }
-        // 只有其他筛选条件（不含"未识别"）
-        if (filteredDateRanges.length > 0) {
-          return filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()));
-        }
+        
         return true;
       }).length;
     }

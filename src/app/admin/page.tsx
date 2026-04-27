@@ -129,6 +129,8 @@ export default function AdminPage() {
   const [fileFilterSite, setFileFilterSite] = useState<string[]>([]);
   const [fileFilterDateRange, setFileFilterDateRange] = useState<string[]>([]);
   const [availableDateRanges, setAvailableDateRanges] = useState<string[]>([]); // 所有可用的日期区间
+  const [fileFilterDisplayName, setFileFilterDisplayName] = useState<string[]>([]);
+  const [availableDisplayNames, setAvailableDisplayNames] = useState<string[]>([]); // 所有可用的保存文件名
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<string>("");
@@ -403,6 +405,14 @@ export default function AdminPage() {
             .filter(Boolean) as string[]
         )].sort();
         setAvailableDateRanges(dateRanges);
+
+        // 提取所有唯一的保存文件名
+        const displayNames = [...new Set(
+          allData.data
+            .map((f: UploadedFile) => f.display_name)
+            .filter(Boolean) as string[]
+        )].sort();
+        setAvailableDisplayNames(displayNames);
       }
 
       // 再获取筛选后分页的数据
@@ -411,6 +421,7 @@ export default function AdminPage() {
       if (fileFilterPlatform.length > 0) params.set("platform", fileFilterPlatform.join(","));
       if (fileFilterSite.length > 0) params.set("site", fileFilterSite.join(","));
       if (fileFilterDateRange.length > 0) params.set("dateRange", fileFilterDateRange.join(","));
+      if (fileFilterDisplayName.length > 0) params.set("displayName", fileFilterDisplayName.join(","));
       params.set("limit", pageSize.toString());
       params.set("offset", ((currentPage - 1) * pageSize).toString());
       const res = await fetch(`/api/files?${params.toString()}`);
@@ -424,12 +435,12 @@ export default function AdminPage() {
     } finally {
       setFilesLoading(false);
     }
-  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, currentPage, pageSize]);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize]);
 
   // 当页码或每页条数变化时重置到第一页
   useEffect(() => {
     setCurrentPage(1);
-  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, pageSize]);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, pageSize]);
 
   useEffect(() => {
     if (activeTab === "files") {
@@ -1156,6 +1167,23 @@ export default function AdminPage() {
                       {availableDateRanges.map((range) => (
                         <SearchSelectItem key={range} value={range}>
                           {range}
+                        </SearchSelectItem>
+                      ))}
+                    </SearchSelect>
+                    <SearchSelect
+                      value={fileFilterDisplayName}
+                      onValueChange={setFileFilterDisplayName as (value: string | string[]) => void}
+                      placeholder="保存文件名"
+                      className="min-w-[150px]"
+                      maxDisplayItems={10}
+                      multiple
+                    >
+                      <SearchSelectItem key="__NONE__" value="__NONE__">
+                        未设置
+                      </SearchSelectItem>
+                      {availableDisplayNames.map((name) => (
+                        <SearchSelectItem key={name} value={name}>
+                          {name}
                         </SearchSelectItem>
                       ))}
                     </SearchSelect>
