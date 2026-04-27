@@ -178,3 +178,45 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+// 删除上传文件记录
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    const ids = searchParams.get("ids"); // 批量删除，多个ID用逗号分隔
+
+    if (!id && !ids) {
+      return NextResponse.json({ error: "缺少文件ID参数" }, { status: 400 });
+    }
+
+    const supabase = getSupabaseClient();
+
+    let error;
+    if (ids) {
+      // 批量删除
+      const idArray = ids.split(",").filter(Boolean);
+      if (idArray.length === 0) {
+        return NextResponse.json({ error: "没有有效的文件ID" }, { status: 400 });
+      }
+      const { error: deleteError } = await supabase.from("uploaded_files").delete().in("id", idArray);
+      error = deleteError;
+    } else if (id) {
+      // 单个删除
+      const { error: deleteError } = await supabase.from("uploaded_files").delete().eq("id", id);
+      error = deleteError;
+    }
+
+    if (error) {
+      return NextResponse.json({ error: `删除失败: ${error.message}` }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("删除文件记录失败:", error);
+    return NextResponse.json(
+      { error: `服务器错误: ${error instanceof Error ? error.message : "未知错误"}` },
+      { status: 500 }
+    );
+  }
+}
