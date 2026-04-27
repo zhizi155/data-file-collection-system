@@ -128,9 +128,15 @@ export default function AdminPage() {
   const [fileFilterPlatform, setFileFilterPlatform] = useState<string[]>([]);
   const [fileFilterSite, setFileFilterSite] = useState<string[]>([]);
   const [fileFilterDateRange, setFileFilterDateRange] = useState<string[]>([]);
-  const [availableDateRanges, setAvailableDateRanges] = useState<string[]>([]); // 所有可用的日期区间
   const [fileFilterDisplayName, setFileFilterDisplayName] = useState<string[]>([]);
+  
+  // 联动筛选的可选项（基于其他筛选条件过滤后的数据）
+  const [availableDateRanges, setAvailableDateRanges] = useState<string[]>([]); // 所有可用的日期区间
   const [availableDisplayNames, setAvailableDisplayNames] = useState<string[]>([]); // 所有可用的保存文件名
+  const [availableShops, setAvailableShops] = useState<Shop[]>([]); // 基于联动的可用店铺
+  const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([]); // 基于联动的可用平台
+  const [availableSites, setAvailableSites] = useState<string[]>([]); // 基于联动的可用站点
+  
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<string>("");
@@ -395,27 +401,103 @@ export default function AdminPage() {
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
-      // 先获取所有日期区间选项（不带筛选条件和分页）
+      // 先获取所有数据（用于计算联动筛选选项）
       const allParams = new URLSearchParams();
       allParams.set("limit", "10000");
       const allRes = await fetch(`/api/files?${allParams.toString()}`);
       const allData = await allRes.json();
       if (allData.success && allData.data) {
-        // 提取所有唯一的日期区间
-        const dateRanges = [...new Set(
+        // 提取所有唯一的日期区间（原始无过滤数据）
+        const allDateRanges = [...new Set(
           allData.data
             .map((f: UploadedFile) => f.date_range)
             .filter(Boolean) as string[]
         )].sort();
-        setAvailableDateRanges(dateRanges);
+        setAvailableDateRanges(allDateRanges);
 
-        // 提取所有唯一的保存文件名
-        const displayNames = [...new Set(
+        // 提取所有唯一的保存文件名（原始无过滤数据）
+        const allDisplayNames = [...new Set(
           allData.data
             .map((f: UploadedFile) => f.display_name)
             .filter(Boolean) as string[]
         )].sort();
-        setAvailableDisplayNames(displayNames);
+        setAvailableDisplayNames(allDisplayNames);
+
+        // 联动计算：根据当前筛选条件过滤后，再提取各筛选框的可选项
+        let filteredData = allData.data;
+
+        // 1. 根据日期区间和保存文件名筛选
+        if (fileFilterDateRange.length > 0) {
+          const includeNone = fileFilterDateRange.includes("__NONE__");
+          const filteredDateRanges = fileFilterDateRange.filter((dr) => dr !== "__NONE__");
+          filteredData = filteredData.filter((f: UploadedFile) => {
+            if (includeNone && filteredDateRanges.length === 0) {
+              return f.date_range === null;
+            }
+            if (includeNone && filteredDateRanges.length > 0) {
+              if (f.date_range === null) return true;
+              return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
+            }
+            return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
+          });
+        }
+
+        if (fileFilterDisplayName.length > 0) {
+          const includeNone = fileFilterDisplayName.includes("__NONE__");
+          const filteredDisplayNames = fileFilterDisplayName.filter((dn) => dn !== "__NONE__");
+          filteredData = filteredData.filter((f: UploadedFile) => {
+            const fileDisplayName = f.display_name || null;
+            if (includeNone && filteredDisplayNames.length === 0) {
+              return fileDisplayName === null;
+            }
+            if (includeNone && filteredDisplayNames.length > 0) {
+              if (fileDisplayName === null) return true;
+              return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
+            }
+            return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
+          });
+        }
+
+        // 2. 根据筛选后的数据，提取店铺、平台、站点选项
+        const shopIdsInFiltered = [...new Set(filteredData.map((f: UploadedFile) => f.shop_id).filter(Boolean))];
+        const shopsInFiltered = shops.filter((s) => shopIdsInFiltered.includes(s.id));
+        setAvailableShops(shopsInFiltered);
+
+        const platformsInFiltered = [...new Set(shopsInFiltered.map((s) => s.platform).filter(Boolean))].sort();
+        setAvailablePlatforms(platformsInFiltered);
+
+        const sitesInFiltered = [...new Set(shopsInFiltered.map((s) => s.site).filter(Boolean))].sort();
+        setAvailableSites(sitesInFiltered);
+
+        // 3. 根据店铺、平台、站点筛选，进一步过滤日期区间和保存文件名
+        let finalFilteredData = filteredData;
+
+        if (fileFilterShop.length > 0) {
+          finalFilteredData = finalFilteredData.filter((f: UploadedFile) => f.shop_id && fileFilterShop.includes(f.shop_id));
+        }
+        if (fileFilterPlatform.length > 0) {
+          const platformShopIds = shops.filter((s) => fileFilterPlatform.includes(s.platform)).map((s) => s.id);
+          finalFilteredData = finalFilteredData.filter((f: UploadedFile) => f.shop_id && platformShopIds.includes(f.shop_id));
+        }
+        if (fileFilterSite.length > 0) {
+          const siteShopIds = shops.filter((s) => fileFilterSite.includes(s.site)).map((s) => s.id);
+          finalFilteredData = finalFilteredData.filter((f: UploadedFile) => f.shop_id && siteShopIds.includes(f.shop_id));
+        }
+
+        // 更新日期区间和保存文件名选项（基于店铺/平台/站点筛选后的数据）
+        const linkedDateRanges = [...new Set(
+          finalFilteredData
+            .map((f: UploadedFile) => f.date_range)
+            .filter(Boolean) as string[]
+        )].sort();
+        setAvailableDateRanges(linkedDateRanges);
+
+        const linkedDisplayNames = [...new Set(
+          finalFilteredData
+            .map((f: UploadedFile) => f.display_name)
+            .filter(Boolean) as string[]
+        )].sort();
+        setAvailableDisplayNames(linkedDisplayNames);
       }
 
       // 再获取筛选后分页的数据
@@ -438,7 +520,7 @@ export default function AdminPage() {
     } finally {
       setFilesLoading(false);
     }
-  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize]);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize, shops]);
 
   // 当页码或每页条数变化时重置到第一页
   useEffect(() => {
@@ -1215,7 +1297,7 @@ export default function AdminPage() {
                       maxDisplayItems={5}
                       multiple
                     >
-                      {[...new Set(shops.map((s) => s.platform))].map((platform) => (
+                      {availablePlatforms.map((platform) => (
                         <SearchSelectItem key={platform} value={platform}>
                           {platform}
                         </SearchSelectItem>
@@ -1229,7 +1311,7 @@ export default function AdminPage() {
                       maxDisplayItems={5}
                       multiple
                     >
-                      {[...new Set(shops.map((s) => s.site))].map((site) => (
+                      {availableSites.map((site) => (
                         <SearchSelectItem key={site} value={site}>
                           {site}
                         </SearchSelectItem>
@@ -1243,7 +1325,7 @@ export default function AdminPage() {
                       maxDisplayItems={8}
                       multiple
                     >
-                      {shops.map((shop) => (
+                      {availableShops.map((shop) => (
                         <SearchSelectItem key={shop.id} value={shop.id}>
                           {shop.name}
                         </SearchSelectItem>
