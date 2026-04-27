@@ -45,47 +45,37 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 构建查询
-    let query = supabase
+    // 解析筛选参数
+    const dateRangeList = dateRange ? dateRange.split(",").filter(Boolean) : [];
+    const includeNone = dateRangeList.includes("__NONE__");
+    const filteredDateRanges = dateRangeList.filter((dr) => dr !== "__NONE__");
+    
+    const displayNameList = displayName ? displayName.split(",").filter(Boolean) : [];
+    const includeNoneDisplay = displayNameList.includes("__NONE__");
+    const filteredDisplayNames = displayNameList.filter((dn) => dn !== "__NONE__");
+
+    // 构建店铺筛选后的查询
+    let shopFilteredQuery = supabase
       .from("uploaded_files")
       .select("*")
       .order("created_at", { ascending: false });
 
-    // 获取总数
-    let countQuery = supabase
-      .from("uploaded_files")
-      .select("*", { count: "exact", head: true });
-
-    // 应用店铺筛选条件到两个查询
+    // 应用店铺筛选条件
     if (shopIdList.length > 0) {
-      query = query.in("shop_id", shopIdList);
-      countQuery = countQuery.in("shop_id", shopIdList);
+      shopFilteredQuery = shopFilteredQuery.in("shop_id", shopIdList);
     } else if (filterShopIds && filterShopIds.length > 0) {
-      query = query.in("shop_id", filterShopIds);
-      countQuery = countQuery.in("shop_id", filterShopIds);
+      shopFilteredQuery = shopFilteredQuery.in("shop_id", filterShopIds);
     }
 
-    // 获取数据
-    let queryResult;
-    if (getAll) {
-      // 获取所有数据（用于联动选项计算）
-      queryResult = await query;
-    } else {
-      // 分页获取数据
-      queryResult = await query.range(offset, offset + limit - 1);
-    }
-
-    const [countResult] = await Promise.all([countQuery]);
-
-    let data = queryResult.data;
-    const error = queryResult.error;
+    // 获取店铺筛选后的所有数据（用于内存筛选）
+    const { data: shopFilteredData, error } = await shopFilteredQuery;
 
     if (error) {
       return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
     }
 
     // 获取店铺信息
-    const allShopIds = [...new Set(data?.map((f) => f.shop_id).filter(Boolean) || [])];
+    const allShopIds = [...new Set(shopFilteredData?.map((f) => f.shop_id).filter(Boolean) || [])];
     const shopsMap: Record<string, { name: string; site: string; platform: string }> = {};
 
     if (allShopIds.length > 0) {
@@ -106,27 +96,19 @@ export async function GET(request: NextRequest) {
     }
 
     // 合并数据并添加日期区间识别
-    let filesWithShops = data?.map((file) => ({
+    let filesWithShops = shopFilteredData?.map((file) => ({
       ...file,
       shops: file.shop_id ? shopsMap[file.shop_id] || null : null,
       date_range: smartExtractDateRange(file.original_name),
     })) || [];
 
-    // 获取过滤后的总数（用于分页）
-    let filteredTotal = countResult.count || 0;
+    // 获取店铺筛选后的总数
+    let filteredTotal = filesWithShops.length;
 
-    // 解析筛选参数（在 if 块外定义，以便后续使用）
-    const dateRangeList = dateRange ? dateRange.split(",").filter(Boolean) : [];
-    const includeNone = dateRangeList.includes("__NONE__");
-    const filteredDateRanges = dateRangeList.filter((dr) => dr !== "__NONE__");
-    
-    const displayNameList = displayName ? displayName.split(",").filter(Boolean) : [];
-    const includeNoneDisplay = displayNameList.includes("__NONE__");
-    const filteredDisplayNames = displayNameList.filter((dn) => dn !== "__NONE__");
-
-    // 注意：getAll=true 时不应用日期区间和保存文件名筛选，用于计算联动选项
+    // 应用日期区间和保存文件名筛选（在内存中筛选，因为 date_range 是计算字段）
+    // 注意：getAll=true 时不应用这些筛选，用于计算联动选项
     if (!getAll) {
-      // 日期区间文本筛选（在内存中筛选，因为 date_range 是计算字段）
+      // 日期区间文本筛选
       if (dateRangeList.length > 0) {
         filesWithShops = filesWithShops.filter((file) => {
           // 只有"未识别"选项：筛选 date_range 为 null 的记录
@@ -147,7 +129,7 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // 保存文件名筛选（在内存中筛选）
+      // 保存文件名筛选
       if (displayNameList.length > 0) {
         filesWithShops = filesWithShops.filter((file) => {
           const fileDisplayName = file.display_name || null;
@@ -167,51 +149,12 @@ export async function GET(request: NextRequest) {
           return true;
         });
       }
-    }
 
-    // 重新计算符合条件的总数（只有分页查询时才需要）
-    if (dateRangeList.length > 0 || displayNameList.length > 0) {
-      // 重新计算符合条件的总数 - 移除 head: true 以获取实际数据用于过滤
-      let allQuery = supabase
-        .from("uploaded_files")
-        .select("original_name, display_name");
+      // 更新筛选后的总数
+      filteredTotal = filesWithShops.length;
 
-      if (shopIdList.length > 0) {
-        allQuery = allQuery.in("shop_id", shopIdList);
-      } else if (filterShopIds && filterShopIds.length > 0) {
-        allQuery = allQuery.in("shop_id", filterShopIds);
-      }
-
-      const { data: allFiles } = await allQuery;
-        
-      // 过滤逻辑
-      filteredTotal = (allFiles || []).filter((file) => {
-        // 日期区间筛选
-        if (dateRangeList.length > 0) {
-          const dr = smartExtractDateRange(file.original_name);
-          if (includeNone && filteredDateRanges.length === 0) {
-            if (dr !== null) return false;
-          } else if (includeNone && filteredDateRanges.length > 0) {
-            if (dr !== null && !filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))) return false;
-          } else {
-            if (!filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))) return false;
-          }
-        }
-            
-        // 保存文件名筛选
-        if (displayNameList.length > 0) {
-          const dn = file.display_name || null;
-          if (includeNoneDisplay && filteredDisplayNames.length === 0) {
-            if (dn !== null) return false;
-          } else if (includeNoneDisplay && filteredDisplayNames.length > 0) {
-            if (dn !== null && !filteredDisplayNames.some((d) => dn?.toLowerCase().includes(d.toLowerCase()))) return false;
-          } else {
-            if (!filteredDisplayNames.some((d) => dn?.toLowerCase().includes(d.toLowerCase()))) return false;
-          }
-        }
-            
-        return true;
-      }).length;
+      // 应用分页（先筛选后分页）
+      filesWithShops = filesWithShops.slice(offset, offset + limit);
     }
 
     if (getAll) {
@@ -219,7 +162,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: filesWithShops,
-        total: filesWithShops.length,
       });
     }
 
@@ -229,34 +171,9 @@ export async function GET(request: NextRequest) {
       total: filteredTotal,
     });
   } catch (error) {
+    console.error("获取上传文件记录失败:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "查询失败" },
-      { status: 500 }
-    );
-  }
-}
-
-// 删除文件记录
-export async function DELETE(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
-
-    if (!id) {
-      return NextResponse.json({ error: "缺少文件ID" }, { status: 400 });
-    }
-
-    const supabase = getSupabaseClient();
-    const { error } = await supabase.from("uploaded_files").delete().eq("id", id);
-
-    if (error) {
-      return NextResponse.json({ error: `删除失败: ${error.message}` }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "删除失败" },
+      { error: `服务器错误: ${error instanceof Error ? error.message : "未知错误"}` },
       { status: 500 }
     );
   }
