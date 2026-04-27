@@ -132,6 +132,7 @@ export default function AdminPage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<string>("");
+  const [exportModalOpen, setExportModalOpen] = useState(false); // 导出方式选择弹窗
 
   // 登录检查
   useEffect(() => {
@@ -456,16 +457,31 @@ export default function AdminPage() {
 
   // 导出选中文件
   const exportSelectedFiles = async () => {
-    if (selectedFiles.size === 0) {
+    const selectedFileData = files.filter((f) => selectedFiles.has(f.id));
+
+    if (selectedFileData.length === 0) {
       setError("请先选择要导出的文件");
       return;
     }
 
-    const selectedFileData = files.filter((f) => selectedFiles.has(f.id));
+    generateCSVAndDownload(selectedFileData);
+  };
 
+  // 按页数导出
+  const exportCurrentPage = async () => {
+    if (files.length === 0) {
+      setError("当前页没有文件可导出");
+      return;
+    }
+
+    generateCSVAndDownload(files);
+  };
+
+  // 生成CSV并下载
+  const generateCSVAndDownload = (fileData: typeof files) => {
     // 生成 CSV 内容
     const headers = ["序号", "原始文件名", "保存文件名", "店铺", "站点", "平台", "文件大小", "上传时间"];
-    const rows = selectedFileData.map((f, idx) => [
+    const rows = fileData.map((f, idx) => [
       idx + 1,
       f.original_name,
       f.display_name || f.stored_key.split("/").pop() || f.stored_key,
@@ -493,6 +509,11 @@ export default function AdminPage() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  // 导出按钮点击处理（打开选择弹窗）
+  const handleExportClick = () => {
+    setExportModalOpen(true);
   };
 
   // 批量下载文件（服务端打包ZIP，保持目录结构：站点/平台/文件名）
@@ -1081,7 +1102,7 @@ export default function AdminPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={exportSelectedFiles}
+                          onClick={handleExportClick}
                           disabled={selectedFiles.size === 0}
                           className="gap-2"
                         >
@@ -1301,6 +1322,53 @@ export default function AdminPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* 导出方式选择弹窗 */}
+                    <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>选择导出方式</DialogTitle>
+                          <DialogDescription>请选择导出上传记录的方式</DialogDescription>
+                        </DialogHeader>
+                        <div className="flex flex-col gap-3 py-4">
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setExportModalOpen(false);
+                              exportSelectedFiles();
+                            }}
+                            className="justify-start h-auto py-3"
+                          >
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="font-medium">按勾选导出</span>
+                              <span className="text-xs text-muted-foreground font-normal">
+                                导出已选中的 {selectedFiles.size} 条记录
+                              </span>
+                            </div>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setExportModalOpen(false);
+                              exportCurrentPage();
+                            }}
+                            className="justify-start h-auto py-3"
+                          >
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="font-medium">按页数导出</span>
+                              <span className="text-xs text-muted-foreground font-normal">
+                                导出当前页 {files.length} 条记录
+                              </span>
+                            </div>
+                          </Button>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="ghost" onClick={() => setExportModalOpen(false)}>
+                            取消
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 )}
               </CardContent>
