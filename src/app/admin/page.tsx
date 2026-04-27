@@ -407,30 +407,60 @@ export default function AdminPage() {
       const allRes = await fetch(`/api/files?${allParams.toString()}`);
       const allData = await allRes.json();
       if (allData.success && allData.data) {
-        // 提取所有唯一的日期区间（原始无过滤数据）
-        const allDateRanges = [...new Set(
-          allData.data
+        // 联动计算逻辑：
+        // 1. 店铺/平台/站点 是联动的触发条件，选择后会影响其他筛选框的选项
+        // 2. 日期区间/保存文件名 只是筛选条件，不影响其他筛选框的选项（支持多选）
+        
+        // 第一步：用店铺/平台/站点筛选数据（用于计算联动后的选项）
+        let linkedData = allData.data;
+
+        if (fileFilterShop.length > 0) {
+          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && fileFilterShop.includes(f.shop_id));
+        }
+        if (fileFilterPlatform.length > 0) {
+          const platformShopIds = shops.filter((s) => fileFilterPlatform.includes(s.platform)).map((s) => s.id);
+          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && platformShopIds.includes(f.shop_id));
+        }
+        if (fileFilterSite.length > 0) {
+          const siteShopIds = shops.filter((s) => fileFilterSite.includes(s.site)).map((s) => s.id);
+          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && siteShopIds.includes(f.shop_id));
+        }
+
+        // 根据联动后的数据，更新各筛选框的选项
+        // 店铺/平台/站点选项（基于其他筛选条件联动后的数据）
+        const shopIdsInLinked = [...new Set(linkedData.map((f: UploadedFile) => f.shop_id).filter(Boolean))];
+        const shopsInLinked = shops.filter((s) => shopIdsInLinked.includes(s.id));
+        setAvailableShops(shopsInLinked);
+
+        const platformsInLinked = [...new Set(shopsInLinked.map((s) => s.platform).filter(Boolean))].sort();
+        setAvailablePlatforms(platformsInLinked);
+
+        const sitesInLinked = [...new Set(shopsInLinked.map((s) => s.site).filter(Boolean))].sort();
+        setAvailableSites(sitesInLinked);
+
+        // 日期区间和保存文件名选项（基于店铺/平台/站点联动后的数据，但保持多选能力）
+        const linkedDateRanges = [...new Set(
+          linkedData
             .map((f: UploadedFile) => f.date_range)
             .filter(Boolean) as string[]
         )].sort();
-        setAvailableDateRanges(allDateRanges);
+        setAvailableDateRanges(linkedDateRanges);
 
-        // 提取所有唯一的保存文件名（原始无过滤数据）
-        const allDisplayNames = [...new Set(
-          allData.data
+        const linkedDisplayNames = [...new Set(
+          linkedData
             .map((f: UploadedFile) => f.display_name)
             .filter(Boolean) as string[]
         )].sort();
-        setAvailableDisplayNames(allDisplayNames);
+        setAvailableDisplayNames(linkedDisplayNames);
 
-        // 联动计算：根据当前筛选条件过滤后，再提取各筛选框的可选项
-        let filteredData = allData.data;
+        // 第二步：用所有筛选条件（包括日期区间和保存文件名）筛选最终数据
+        let finalData = linkedData;
 
-        // 1. 根据日期区间和保存文件名筛选
+        // 日期区间筛选（支持多选，不影响其他筛选框选项）
         if (fileFilterDateRange.length > 0) {
           const includeNone = fileFilterDateRange.includes("__NONE__");
           const filteredDateRanges = fileFilterDateRange.filter((dr) => dr !== "__NONE__");
-          filteredData = filteredData.filter((f: UploadedFile) => {
+          finalData = finalData.filter((f: UploadedFile) => {
             if (includeNone && filteredDateRanges.length === 0) {
               return f.date_range === null;
             }
@@ -442,10 +472,11 @@ export default function AdminPage() {
           });
         }
 
+        // 保存文件名筛选（支持多选，不影响其他筛选框选项）
         if (fileFilterDisplayName.length > 0) {
           const includeNone = fileFilterDisplayName.includes("__NONE__");
           const filteredDisplayNames = fileFilterDisplayName.filter((dn) => dn !== "__NONE__");
-          filteredData = filteredData.filter((f: UploadedFile) => {
+          finalData = finalData.filter((f: UploadedFile) => {
             const fileDisplayName = f.display_name || null;
             if (includeNone && filteredDisplayNames.length === 0) {
               return fileDisplayName === null;
@@ -457,50 +488,9 @@ export default function AdminPage() {
             return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
           });
         }
-
-        // 2. 根据筛选后的数据，提取店铺、平台、站点选项
-        const shopIdsInFiltered = [...new Set(filteredData.map((f: UploadedFile) => f.shop_id).filter(Boolean))];
-        const shopsInFiltered = shops.filter((s) => shopIdsInFiltered.includes(s.id));
-        setAvailableShops(shopsInFiltered);
-
-        const platformsInFiltered = [...new Set(shopsInFiltered.map((s) => s.platform).filter(Boolean))].sort();
-        setAvailablePlatforms(platformsInFiltered);
-
-        const sitesInFiltered = [...new Set(shopsInFiltered.map((s) => s.site).filter(Boolean))].sort();
-        setAvailableSites(sitesInFiltered);
-
-        // 3. 根据店铺、平台、站点筛选，进一步过滤日期区间和保存文件名
-        let finalFilteredData = filteredData;
-
-        if (fileFilterShop.length > 0) {
-          finalFilteredData = finalFilteredData.filter((f: UploadedFile) => f.shop_id && fileFilterShop.includes(f.shop_id));
-        }
-        if (fileFilterPlatform.length > 0) {
-          const platformShopIds = shops.filter((s) => fileFilterPlatform.includes(s.platform)).map((s) => s.id);
-          finalFilteredData = finalFilteredData.filter((f: UploadedFile) => f.shop_id && platformShopIds.includes(f.shop_id));
-        }
-        if (fileFilterSite.length > 0) {
-          const siteShopIds = shops.filter((s) => fileFilterSite.includes(s.site)).map((s) => s.id);
-          finalFilteredData = finalFilteredData.filter((f: UploadedFile) => f.shop_id && siteShopIds.includes(f.shop_id));
-        }
-
-        // 更新日期区间和保存文件名选项（基于店铺/平台/站点筛选后的数据）
-        const linkedDateRanges = [...new Set(
-          finalFilteredData
-            .map((f: UploadedFile) => f.date_range)
-            .filter(Boolean) as string[]
-        )].sort();
-        setAvailableDateRanges(linkedDateRanges);
-
-        const linkedDisplayNames = [...new Set(
-          finalFilteredData
-            .map((f: UploadedFile) => f.display_name)
-            .filter(Boolean) as string[]
-        )].sort();
-        setAvailableDisplayNames(linkedDisplayNames);
       }
 
-      // 再获取筛选后分页的数据
+      // 获取筛选后分页的数据
       const params = new URLSearchParams();
       if (fileFilterShop.length > 0) params.set("shopId", fileFilterShop.join(","));
       if (fileFilterPlatform.length > 0) params.set("platform", fileFilterPlatform.join(","));
