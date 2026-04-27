@@ -136,6 +136,9 @@ export default function AdminPage() {
   const [downloadStatus, setDownloadStatus] = useState<string>("");
   const [exportModalOpen, setExportModalOpen] = useState(false); // 导出方式选择弹窗
   const [downloadModalOpen, setDownloadModalOpen] = useState(false); // 下载方式选择弹窗
+  const [pageRangeModalOpen, setPageRangeModalOpen] = useState(false); // 页数范围下载弹窗
+  const [downloadStartPage, setDownloadStartPage] = useState(1);
+  const [downloadEndPage, setDownloadEndPage] = useState(1);
 
   // 登录检查
   useEffect(() => {
@@ -626,6 +629,99 @@ export default function AdminPage() {
       URL.revokeObjectURL(url);
 
       setDownloadStatus("下载完成！");
+      setTimeout(() => {
+        setDownloading(false);
+        setDownloadProgress(0);
+        setDownloadStatus("");
+      }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "下载失败");
+      setDownloading(false);
+      setDownloadProgress(0);
+      setDownloadStatus("");
+    }
+  };
+
+  // 按页数范围批量下载
+  const downloadPageRangeFiles = async () => {
+    const totalPages = Math.ceil(totalCount / pageSize);
+    if (downloadStartPage < 1 || downloadEndPage > totalPages || downloadStartPage > downloadEndPage) {
+      setError(`页数范围无效，请输入 1-${totalPages} 之间的页数`);
+      return;
+    }
+
+    try {
+      setDownloading(true);
+      setDownloadProgress(0);
+      setDownloadStatus("正在获取文件列表...");
+
+      // 构建筛选条件参数
+      const params = new URLSearchParams();
+      if (fileFilterShop.length > 0) params.set("shopId", fileFilterShop.join(","));
+      if (fileFilterPlatform.length > 0) params.set("platform", fileFilterPlatform.join(","));
+      if (fileFilterSite.length > 0) params.set("site", fileFilterSite.join(","));
+      if (fileFilterDateRange.length > 0) params.set("dateRange", fileFilterDateRange.join(","));
+      if (fileFilterDisplayName.length > 0) params.set("displayName", fileFilterDisplayName.join(","));
+      params.set("limit", pageSize.toString());
+
+      // 获取指定页数范围的所有文件ID
+      const allFileIds: string[] = [];
+      const startOffset = (downloadStartPage - 1) * pageSize;
+      const endOffset = downloadEndPage * pageSize;
+      
+      // 分批获取文件
+      for (let offset = startOffset; offset < endOffset; offset += pageSize) {
+        params.set("offset", offset.toString());
+        const res = await fetch(`/api/files?${params.toString()}`);
+        const data = await res.json();
+        if (data.success && data.data) {
+          allFileIds.push(...data.data.map((f: UploadedFile) => f.id));
+        }
+      }
+
+      if (allFileIds.length === 0) {
+        setError("该页数范围内没有文件可下载");
+        setDownloading(false);
+        setDownloadStatus("");
+        return;
+      }
+
+      setDownloadProgress(20);
+      setDownloadStatus(`正在打包 ${allFileIds.length} 个文件...`);
+
+      // 调用服务端批量下载API
+      const response = await fetch("/api/files/batch-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileIds: allFileIds }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setError(errorData.error || "打包失败");
+        setDownloading(false);
+        setDownloadProgress(0);
+        setDownloadStatus("");
+        return;
+      }
+
+      setDownloadProgress(80);
+      setDownloadStatus("正在下载...");
+
+      // 获取ZIP文件并触发下载
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `批量下载_${downloadStartPage}-${downloadEndPage}页_${new Date().toISOString().split("T")[0]}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setDownloadProgress(100);
+      setDownloadStatus("下载完成！");
+      setPageRangeModalOpen(false);
       setTimeout(() => {
         setDownloading(false);
         setDownloadProgress(0);
@@ -1488,14 +1584,18 @@ export default function AdminPage() {
                             variant="outline"
                             onClick={() => {
                               setDownloadModalOpen(false);
-                              downloadCurrentPageFiles();
+                              // 初始化页数范围
+                              const totalPages = Math.ceil(totalCount / pageSize);
+                              setDownloadStartPage(1);
+                              setDownloadEndPage(totalPages);
+                              setPageRangeModalOpen(true);
                             }}
                             className="justify-start h-auto py-3"
                           >
                             <div className="flex flex-col items-start gap-1">
-                              <span className="font-medium">按页数下载</span>
+                              <span className="font-medium">按页数范围下载</span>
                               <span className="text-xs text-muted-foreground font-normal">
-                                下载当前页 {files.length} 个文件
+                                下载指定页数范围的 {files.length} 个文件
                               </span>
                             </div>
                           </Button>
@@ -1503,6 +1603,52 @@ export default function AdminPage() {
                         <DialogFooter>
                           <Button variant="ghost" onClick={() => setDownloadModalOpen(false)}>
                             取消
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+
+                    {/* 页数范围下载弹窗 */}
+                    <Dialog open={pageRangeModalOpen} onOpenChange={setPageRangeModalOpen}>
+                      <DialogContent className="sm:max-w-sm">
+                        <DialogHeader>
+                          <DialogTitle>输入页数范围</DialogTitle>
+                          <DialogDescription>
+                            共 {totalCount} 条记录，每页 {pageSize} 条，共 {Math.ceil(totalCount / pageSize)} 页
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex flex-col gap-4 py-4">
+                          <div className="flex items-center gap-2">
+                            <Label>从第</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={Math.ceil(totalCount / pageSize)}
+                              value={downloadStartPage}
+                              onChange={(e) => setDownloadStartPage(Math.max(1, Math.min(Math.ceil(totalCount / pageSize), parseInt(e.target.value) || 1)))}
+                              className="w-20"
+                            />
+                            <Label>页</Label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label>到第</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={Math.ceil(totalCount / pageSize)}
+                              value={downloadEndPage}
+                              onChange={(e) => setDownloadEndPage(Math.max(1, Math.min(Math.ceil(totalCount / pageSize), parseInt(e.target.value) || 1)))}
+                              className="w-20"
+                            />
+                            <Label>页</Label>
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="ghost" onClick={() => setPageRangeModalOpen(false)}>
+                            取消
+                          </Button>
+                          <Button onClick={downloadPageRangeFiles} disabled={downloading}>
+                            {downloading ? "下载中..." : "确认下载"}
                           </Button>
                         </DialogFooter>
                       </DialogContent>
