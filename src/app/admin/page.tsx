@@ -118,6 +118,9 @@ export default function AdminPage() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("files");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
@@ -385,7 +388,7 @@ export default function AdminPage() {
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
-      // 先获取所有日期区间选项（不带筛选条件）
+      // 先获取所有日期区间选项（不带筛选条件和分页）
       const allParams = new URLSearchParams();
       allParams.set("limit", "10000");
       const allRes = await fetch(`/api/files?${allParams.toString()}`);
@@ -400,25 +403,31 @@ export default function AdminPage() {
         setAvailableDateRanges(dateRanges);
       }
 
-      // 再获取筛选后的数据
+      // 再获取筛选后分页的数据
       const params = new URLSearchParams();
       if (fileFilterShop.length > 0) params.set("shopId", fileFilterShop.join(","));
       if (fileFilterPlatform.length > 0) params.set("platform", fileFilterPlatform.join(","));
       if (fileFilterSite.length > 0) params.set("site", fileFilterSite.join(","));
       if (fileFilterDateRange.length > 0) params.set("dateRange", fileFilterDateRange.join(","));
-      const queryString = params.toString();
-      const url = queryString ? `/api/files?${queryString}` : "/api/files";
-      const res = await fetch(url);
+      params.set("limit", pageSize.toString());
+      params.set("offset", ((currentPage - 1) * pageSize).toString());
+      const res = await fetch(`/api/files?${params.toString()}`);
       const data = await res.json();
       if (data.success) {
         setFiles(data.data);
+        setTotalCount(data.total || 0);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {
       setFilesLoading(false);
     }
-  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange]);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, currentPage, pageSize]);
+
+  // 当页码或每页条数变化时重置到第一页
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, pageSize]);
 
   useEffect(() => {
     if (activeTab === "files") {
@@ -1235,6 +1244,63 @@ export default function AdminPage() {
                         ))}
                       </TableBody>
                     </Table>
+                    
+                    {/* 分页控件 */}
+                    {totalCount > 0 && (
+                      <div className="flex items-center justify-between mt-4 px-2">
+                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                          <span>每页显示</span>
+                          <select
+                            value={pageSize}
+                            onChange={(e) => setPageSize(Number(e.target.value))}
+                            className="border rounded px-2 py-1 bg-background"
+                          >
+                            <option value={20}>20</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                          </select>
+                          <span>条</span>
+                          <span className="ml-2">共 {totalCount} 条记录</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage(1)}
+                            disabled={currentPage === 1}
+                          >
+                            首页
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                          >
+                            上一页
+                          </Button>
+                          <span className="px-3 text-sm">
+                            第 {currentPage} / {Math.ceil(totalCount / pageSize)} 页
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage((p) => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
+                            disabled={currentPage >= Math.ceil(totalCount / pageSize)}
+                          >
+                            下一页
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage(Math.ceil(totalCount / pageSize))}
+                            disabled={currentPage >= Math.ceil(totalCount / pageSize)}
+                          >
+                            末页
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
