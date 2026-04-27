@@ -403,7 +403,7 @@ export default function AdminPage() {
     try {
       // 先获取所有数据（用于计算联动筛选选项）
       const allParams = new URLSearchParams();
-      allParams.set("limit", "10000");
+      allParams.set("getAll", "true");
       const allRes = await fetch(`/api/files?${allParams.toString()}`);
       const allData = await allRes.json();
       if (allData.success && allData.data) {

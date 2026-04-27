@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     const displayName = searchParams.get("displayName"); // 保存文件名筛选
     const limit = parseInt(searchParams.get("limit") || "100");
     const offset = parseInt(searchParams.get("offset") || "0");
+    const getAll = searchParams.get("getAll") === "true"; // 是否获取所有数据（用于联动选项计算）
 
     const supabase = getSupabaseClient();
 
@@ -67,10 +68,17 @@ export async function GET(request: NextRequest) {
       countQuery = countQuery.in("shop_id", filterShopIds);
     }
 
-    const [queryResult, countResult] = await Promise.all([
-      query.range(offset, offset + limit - 1),
-      countQuery,
-    ]);
+    // 获取数据
+    let queryResult;
+    if (getAll) {
+      // 获取所有数据（用于联动选项计算）
+      queryResult = await query;
+    } else {
+      // 分页获取数据
+      queryResult = await query.range(offset, offset + limit - 1);
+    }
+
+    const [countResult] = await Promise.all([countQuery]);
 
     let data = queryResult.data;
     const error = queryResult.error;
@@ -201,6 +209,15 @@ export async function GET(request: NextRequest) {
         
         return true;
       }).length;
+    }
+
+    if (getAll) {
+      // 获取所有数据时返回，不带分页信息
+      return NextResponse.json({
+        success: true,
+        data: filesWithShops,
+        total: filesWithShops.length,
+      });
     }
 
     return NextResponse.json({
