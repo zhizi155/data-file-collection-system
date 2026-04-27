@@ -133,6 +133,7 @@ export default function AdminPage() {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<string>("");
   const [exportModalOpen, setExportModalOpen] = useState(false); // 导出方式选择弹窗
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false); // 下载方式选择弹窗
 
   // 登录检查
   useEffect(() => {
@@ -568,6 +569,68 @@ export default function AdminPage() {
       setDownloadProgress(0);
       setDownloadStatus("");
     }
+  };
+
+  // 按页数批量下载
+  const downloadCurrentPageFiles = async () => {
+    if (files.length === 0) {
+      setError("当前页没有文件可下载");
+      return;
+    }
+
+    try {
+      setDownloading(true);
+      setDownloadProgress(0);
+      setDownloadStatus("正在打包文件...");
+
+      // 获取当前页所有文件的ID
+      const fileIds = files.map((f) => f.id);
+
+      // 调用服务端批量下载API
+      const response = await fetch("/api/files/batch-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileIds }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setError(errorData.error || "打包失败");
+        setDownloading(false);
+        setDownloadStatus("");
+        return;
+      }
+
+      setDownloadStatus("正在下载...");
+
+      // 获取ZIP文件并触发下载
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `批量下载_${new Date().toISOString().split("T")[0]}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setDownloadStatus("下载完成！");
+      setTimeout(() => {
+        setDownloading(false);
+        setDownloadProgress(0);
+        setDownloadStatus("");
+      }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "下载失败");
+      setDownloading(false);
+      setDownloadProgress(0);
+      setDownloadStatus("");
+    }
+  };
+
+  // 下载按钮点击处理（打开选择弹窗）
+  const handleDownloadClick = () => {
+    setDownloadModalOpen(true);
   };
 
   // 批量删除选中文件
@@ -1112,7 +1175,7 @@ export default function AdminPage() {
                         <Button
                           variant="default"
                           size="sm"
-                          onClick={batchDownloadFiles}
+                          onClick={handleDownloadClick}
                           disabled={selectedFiles.size === 0 || downloading}
                           className="gap-2"
                         >
@@ -1364,6 +1427,53 @@ export default function AdminPage() {
                         </div>
                         <DialogFooter>
                           <Button variant="ghost" onClick={() => setExportModalOpen(false)}>
+                            取消
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+
+                    {/* 下载方式选择弹窗 */}
+                    <Dialog open={downloadModalOpen} onOpenChange={setDownloadModalOpen}>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>选择下载方式</DialogTitle>
+                          <DialogDescription>请选择批量下载文件的方式</DialogDescription>
+                        </DialogHeader>
+                        <div className="flex flex-col gap-3 py-4">
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setDownloadModalOpen(false);
+                              batchDownloadFiles();
+                            }}
+                            className="justify-start h-auto py-3"
+                          >
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="font-medium">按勾选下载</span>
+                              <span className="text-xs text-muted-foreground font-normal">
+                                下载已选中的 {selectedFiles.size} 个文件
+                              </span>
+                            </div>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setDownloadModalOpen(false);
+                              downloadCurrentPageFiles();
+                            }}
+                            className="justify-start h-auto py-3"
+                          >
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="font-medium">按页数下载</span>
+                              <span className="text-xs text-muted-foreground font-normal">
+                                下载当前页 {files.length} 个文件
+                              </span>
+                            </div>
+                          </Button>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="ghost" onClick={() => setDownloadModalOpen(false)}>
                             取消
                           </Button>
                         </DialogFooter>
