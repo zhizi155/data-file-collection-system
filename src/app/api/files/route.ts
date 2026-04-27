@@ -118,13 +118,18 @@ export async function GET(request: NextRequest) {
     // 获取过滤后的总数（用于分页）
     let filteredTotal = countResult.count || 0;
 
+    // 解析筛选参数（在 if 块外定义，以便后续使用）
+    const dateRangeList = dateRange ? dateRange.split(",").filter(Boolean) : [];
+    const includeNone = dateRangeList.includes("__NONE__");
+    const filteredDateRanges = dateRangeList.filter((dr) => dr !== "__NONE__");
+    
+    const displayNameList = displayName ? displayName.split(",").filter(Boolean) : [];
+    const includeNoneDisplay = displayNameList.includes("__NONE__");
+    const filteredDisplayNames = displayNameList.filter((dn) => dn !== "__NONE__");
+
     // 注意：getAll=true 时不应用日期区间和保存文件名筛选，用于计算联动选项
     if (!getAll) {
       // 日期区间文本筛选（在内存中筛选，因为 date_range 是计算字段）
-      const dateRangeList = dateRange ? dateRange.split(",").filter(Boolean) : [];
-      const includeNone = dateRangeList.includes("__NONE__");
-      const filteredDateRanges = dateRangeList.filter((dr) => dr !== "__NONE__");
-        
       if (dateRangeList.length > 0) {
         filesWithShops = filesWithShops.filter((file) => {
           // 只有"未识别"选项：筛选 date_range 为 null 的记录
@@ -146,10 +151,6 @@ export async function GET(request: NextRequest) {
       }
 
       // 保存文件名筛选（在内存中筛选）
-      const displayNameList = displayName ? displayName.split(",").filter(Boolean) : [];
-      const includeNoneDisplay = displayNameList.includes("__NONE__");
-      const filteredDisplayNames = displayNameList.filter((dn) => dn !== "__NONE__");
-        
       if (displayNameList.length > 0) {
         filesWithShops = filesWithShops.filter((file) => {
           const fileDisplayName = file.display_name || null;
@@ -169,50 +170,51 @@ export async function GET(request: NextRequest) {
           return true;
         });
       }
+    }
 
-      if (dateRangeList.length > 0 || displayNameList.length > 0) {
-        // 重新计算符合条件的总数
-        let allQuery = supabase
-          .from("uploaded_files")
-          .select("original_name, display_name", { count: "exact", head: true });
+    // 重新计算符合条件的总数（只有分页查询时才需要）
+    if (dateRangeList.length > 0 || displayNameList.length > 0) {
+      // 重新计算符合条件的总数
+      let allQuery = supabase
+        .from("uploaded_files")
+        .select("original_name, display_name", { count: "exact", head: true });
 
-        if (shopIdList.length > 0) {
-          allQuery = allQuery.in("shop_id", shopIdList);
-        } else if (filterShopIds && filterShopIds.length > 0) {
-          allQuery = allQuery.in("shop_id", filterShopIds);
-        }
-
-        const { data: allFiles } = await allQuery;
-          
-        // 过滤逻辑
-        filteredTotal = (allFiles || []).filter((file) => {
-          // 日期区间筛选
-          if (dateRangeList.length > 0) {
-            const dr = smartExtractDateRange(file.original_name);
-            if (includeNone && filteredDateRanges.length === 0) {
-              if (dr !== null) return false;
-            } else if (includeNone && filteredDateRanges.length > 0) {
-              if (dr !== null && !filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))) return false;
-            } else {
-              if (!filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))) return false;
-            }
-          }
-            
-          // 保存文件名筛选
-          if (displayNameList.length > 0) {
-            const dn = file.display_name || null;
-            if (includeNoneDisplay && filteredDisplayNames.length === 0) {
-              if (dn !== null) return false;
-            } else if (includeNoneDisplay && filteredDisplayNames.length > 0) {
-              if (dn !== null && !filteredDisplayNames.some((d) => dn?.toLowerCase().includes(d.toLowerCase()))) return false;
-            } else {
-              if (!filteredDisplayNames.some((d) => dn?.toLowerCase().includes(d.toLowerCase()))) return false;
-            }
-          }
-            
-          return true;
-        }).length;
+      if (shopIdList.length > 0) {
+        allQuery = allQuery.in("shop_id", shopIdList);
+      } else if (filterShopIds && filterShopIds.length > 0) {
+        allQuery = allQuery.in("shop_id", filterShopIds);
       }
+
+      const { data: allFiles } = await allQuery;
+        
+      // 过滤逻辑
+      filteredTotal = (allFiles || []).filter((file) => {
+        // 日期区间筛选
+        if (dateRangeList.length > 0) {
+          const dr = smartExtractDateRange(file.original_name);
+          if (includeNone && filteredDateRanges.length === 0) {
+            if (dr !== null) return false;
+          } else if (includeNone && filteredDateRanges.length > 0) {
+            if (dr !== null && !filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))) return false;
+          } else {
+            if (!filteredDateRanges.some((range) => dr?.toLowerCase().includes(range.toLowerCase()))) return false;
+          }
+        }
+            
+        // 保存文件名筛选
+        if (displayNameList.length > 0) {
+          const dn = file.display_name || null;
+          if (includeNoneDisplay && filteredDisplayNames.length === 0) {
+            if (dn !== null) return false;
+          } else if (includeNoneDisplay && filteredDisplayNames.length > 0) {
+            if (dn !== null && !filteredDisplayNames.some((d) => dn?.toLowerCase().includes(d.toLowerCase()))) return false;
+          } else {
+            if (!filteredDisplayNames.some((d) => dn?.toLowerCase().includes(d.toLowerCase()))) return false;
+          }
+        }
+            
+        return true;
+      }).length;
     }
 
     if (getAll) {
