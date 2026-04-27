@@ -51,20 +51,17 @@ export async function GET(request: NextRequest) {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (shopIdList.length > 0) {
-      query = query.in("shop_id", shopIdList);
-    } else if (filterShopIds && filterShopIds.length > 0) {
-      query = query.in("shop_id", filterShopIds);
-    }
-
     // 获取总数
     let countQuery = supabase
       .from("uploaded_files")
       .select("*", { count: "exact", head: true });
 
+    // 应用店铺筛选条件到两个查询
     if (shopIdList.length > 0) {
+      query = query.in("shop_id", shopIdList);
       countQuery = countQuery.in("shop_id", shopIdList);
     } else if (filterShopIds && filterShopIds.length > 0) {
+      query = query.in("shop_id", filterShopIds);
       countQuery = countQuery.in("shop_id", filterShopIds);
     }
 
@@ -174,10 +171,10 @@ export async function GET(request: NextRequest) {
 
     // 重新计算符合条件的总数（只有分页查询时才需要）
     if (dateRangeList.length > 0 || displayNameList.length > 0) {
-      // 重新计算符合条件的总数
+      // 重新计算符合条件的总数 - 移除 head: true 以获取实际数据用于过滤
       let allQuery = supabase
         .from("uploaded_files")
-        .select("original_name, display_name", { count: "exact", head: true });
+        .select("original_name, display_name");
 
       if (shopIdList.length > 0) {
         allQuery = allQuery.in("shop_id", shopIdList);
