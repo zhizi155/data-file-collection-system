@@ -1300,7 +1300,7 @@ export default function AdminPage() {
                           variant="default"
                           size="sm"
                           onClick={handleDownloadClick}
-                          disabled={selectedFiles.size === 0 || downloading}
+                          disabled={downloading}
                           className="gap-2"
                         >
                           {downloading ? (
@@ -1309,7 +1309,6 @@ export default function AdminPage() {
                             <FolderDown className="w-4 h-4" />
                           )}
                           {downloading ? "下载中..." : "批量下载"}
-                          {selectedFiles.size > 0 && !downloading && ` (${selectedFiles.size})`}
                         </Button>
                         <Button
                           variant="destructive"
