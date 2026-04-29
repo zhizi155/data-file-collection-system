@@ -409,24 +409,27 @@ export default function AdminPage() {
     loadData();
   }, [loadData]);
 
-  // 计算联动选项（基于给定数据）
-  const calcLinkedOptions = (data: UploadedFile[], shopFilter: string[], platformFilter: string[], siteFilter: string[], dateRangeFilter: string[], displayNameFilter: string[]) => {
-    let linkedData = data;
+  // 计算联动选项（基于缓存数据和当前筛选值）
+  const recalcLinkedOptions = useCallback(() => {
+    if (allFilesCache.length === 0) return;
+    
+    let linkedData = allFilesCache;
 
-    if (shopFilter.length > 0) {
-      linkedData = linkedData.filter((f) => f.shop_id && shopFilter.includes(f.shop_id));
+    // 应用所有筛选条件计算联动数据
+    if (fileFilterShop.length > 0) {
+      linkedData = linkedData.filter((f) => f.shop_id && fileFilterShop.includes(f.shop_id));
     }
-    if (platformFilter.length > 0) {
-      const platformShopIds = shops.filter((s) => platformFilter.includes(s.platform)).map((s) => s.id);
+    if (fileFilterPlatform.length > 0) {
+      const platformShopIds = shops.filter((s) => fileFilterPlatform.includes(s.platform)).map((s) => s.id);
       linkedData = linkedData.filter((f) => f.shop_id && platformShopIds.includes(f.shop_id));
     }
-    if (siteFilter.length > 0) {
-      const siteShopIds = shops.filter((s) => siteFilter.includes(s.site)).map((s) => s.id);
+    if (fileFilterSite.length > 0) {
+      const siteShopIds = shops.filter((s) => fileFilterSite.includes(s.site)).map((s) => s.id);
       linkedData = linkedData.filter((f) => f.shop_id && siteShopIds.includes(f.shop_id));
     }
-    if (dateRangeFilter.length > 0) {
-      const includeNone = dateRangeFilter.includes("__NONE__");
-      const filteredDateRanges = dateRangeFilter.filter((dr) => dr !== "__NONE__");
+    if (fileFilterDateRange.length > 0) {
+      const includeNone = fileFilterDateRange.includes("__NONE__");
+      const filteredDateRanges = fileFilterDateRange.filter((dr) => dr !== "__NONE__");
       linkedData = linkedData.filter((f) => {
         if (includeNone && filteredDateRanges.length === 0) return f.date_range === null;
         if (includeNone && filteredDateRanges.length > 0) {
@@ -436,9 +439,9 @@ export default function AdminPage() {
         return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
       });
     }
-    if (displayNameFilter.length > 0) {
-      const includeNone = displayNameFilter.includes("__NONE__");
-      const filteredDisplayNames = displayNameFilter.filter((dn) => dn !== "__NONE__");
+    if (fileFilterDisplayName.length > 0) {
+      const includeNone = fileFilterDisplayName.includes("__NONE__");
+      const filteredDisplayNames = fileFilterDisplayName.filter((dn) => dn !== "__NONE__");
       linkedData = linkedData.filter((f) => {
         const fileDisplayName = f.display_name || null;
         if (includeNone && filteredDisplayNames.length === 0) return fileDisplayName === null;
@@ -457,15 +460,12 @@ export default function AdminPage() {
     setAvailableSites([...new Set(shopsInLinked.map((s) => s.site).filter(Boolean))].sort());
     setAvailableDateRanges([...new Set(linkedData.map((f) => f.date_range).filter(Boolean) as string[])].sort());
     setAvailableDisplayNames([...new Set(linkedData.map((f) => f.display_name).filter(Boolean) as string[])].sort());
-
-    return linkedData;
-  };
+  }, [allFilesCache, fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, shops]);
 
   // 加载文件记录
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
-      // 获取分页数据
       const params = new URLSearchParams();
       if (fileFilterShop.length > 0) params.set("shopId", fileFilterShop.join(","));
       if (fileFilterPlatform.length > 0) params.set("platform", fileFilterPlatform.join(","));
@@ -487,43 +487,17 @@ export default function AdminPage() {
     }
   }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize]);
 
-  // 确认筛选
-  const confirmFileFilters = async () => {
-    // 先获取所有数据用于计算联动选项
-    let dataToUse = allFilesCache;
-    if (dataToUse.length === 0) {
-      setFilesLoading(true);
-      try {
-        const allParams = new URLSearchParams();
-        allParams.set("getAll", "true");
-        const allRes = await fetch(`/api/files?${allParams.toString()}`);
-        const allData = await allRes.json();
-        if (allData.success && allData.data) {
-          dataToUse = allData.data;
-          setAllFilesCache(allData.data);
-        }
-      } catch (err) {
-        console.error("获取数据失败:", err);
-        setFilesLoading(false);
-        return;
-      }
-    }
-
-    // 计算联动选项
-    calcLinkedOptions(dataToUse, tempFileFilterShop, tempFileFilterPlatform, tempFileFilterSite, tempFileFilterDateRange, tempFileFilterDisplayName);
-    setLinkedOptionsCalculated(true);
-
-    // 应用筛选值（这会触发 useEffect 重新加载分页数据）
+  // 确认筛选（直接设置筛选值，同步触发更新）
+  const confirmFileFilters = () => {
     setFileFilterShop(tempFileFilterShop);
     setFileFilterPlatform(tempFileFilterPlatform);
     setFileFilterSite(tempFileFilterSite);
     setFileFilterDateRange(tempFileFilterDateRange);
     setFileFilterDisplayName(tempFileFilterDisplayName);
     setCurrentPage(1);
-    setFilesLoading(false);
   };
 
-  // 清除筛选（同时清除临时和实际筛选值）
+  // 清除筛选
   const clearFileFilters = () => {
     setFileFilterShop([]);
     setFileFilterPlatform([]);
@@ -535,15 +509,14 @@ export default function AdminPage() {
     setTempFileFilterSite([]);
     setTempFileFilterDateRange([]);
     setTempFileFilterDisplayName([]);
-    setLinkedOptionsCalculated(false);
     setCurrentPage(1);
   };
 
-  // 首次加载时获取所有数据计算联动选项
+  // 首次加载时获取所有数据
   useEffect(() => {
-    if (activeTab === "files" && allFilesCache.length === 0 && !filesLoading) {
+    if (activeTab === "files" && allFilesCache.length === 0) {
+      setFilesLoading(true);
       const initLoad = async () => {
-        setFilesLoading(true);
         try {
           const allParams = new URLSearchParams();
           allParams.set("getAll", "true");
@@ -551,7 +524,6 @@ export default function AdminPage() {
           const allData = await allRes.json();
           if (allData.success && allData.data) {
             setAllFilesCache(allData.data);
-            calcLinkedOptions(allData.data, [], [], [], [], []);
           }
         } catch (err) {
           console.error("初始化加载失败:", err);
@@ -563,17 +535,13 @@ export default function AdminPage() {
     }
   }, [activeTab]);
 
-  // 当筛选值变化时重新加载分页数据
+  // 当筛选值或分页变化时：计算联动选项并加载分页数据
   useEffect(() => {
-    if (activeTab === "files" && !filesLoading) {
+    if (activeTab === "files") {
+      recalcLinkedOptions();
       loadFiles();
     }
-  }, [activeTab, fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize, loadFiles]);
-
-  // 当每页条数变化时重置到第一页
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [pageSize]);
+  }, [activeTab, fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize]);
 
   // 文件选择操作
   const toggleFileSelection = (fileId: string) => {
