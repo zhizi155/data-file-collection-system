@@ -2591,6 +2591,13 @@ function CollectionProgressTable() {
     if (filterManager.length > 0) {
       linkedData = linkedData.filter((item) => filterManager.includes(item.shopManager || ""));
     }
+    if (filterUploaded) {
+      if (filterUploaded === "yes") {
+        linkedData = linkedData.filter((item) => item.uploadCount > 0);
+      } else if (filterUploaded === "no") {
+        linkedData = linkedData.filter((item) => item.uploadCount === 0);
+      }
+    }
 
     // 根据联动后的数据，更新各筛选框的选项
     const platformsInLinked = [...new Set(linkedData.map((d) => d.shopPlatform).filter(Boolean))].sort();
@@ -2601,7 +2608,7 @@ function CollectionProgressTable() {
 
     const managersInLinked = [...new Set(linkedData.map((d) => d.shopManager).filter(Boolean) as string[])].sort();
     setAvailableManagers(managersInLinked);
-  }, [progressData, filterSite, filterPlatform, filterManager]);
+  }, [progressData, filterSite, filterPlatform, filterManager, filterUploaded]);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "-";
