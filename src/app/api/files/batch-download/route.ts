@@ -12,6 +12,35 @@ const storage = new S3Storage({
   region: "cn-beijing",
 });
 
+// 分批查询辅助函数，避免 URL 过长
+async function queryInBatches<T>(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  table: string,
+  column: string,
+  ids: string[],
+  batchSize: number = 100
+): Promise<T[]> {
+  const results: T[] = [];
+  
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize);
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .in(column, batch);
+    
+    if (error) {
+      throw new Error(`查询失败: ${error.message}`);
+    }
+    
+    if (data) {
+      results.push(...(data as T[]));
+    }
+  }
+  
+  return results;
+}
+
 // 批量下载 - 返回ZIP文件
 export async function POST(request: NextRequest) {
   try {
@@ -24,29 +53,30 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseClient();
 
-    // 查询文件信息和店铺信息
-    const { data: files, error } = await supabase
-      .from("uploaded_files")
-      .select("*")
-      .in("id", fileIds);
-
-    if (error) {
-      return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
-    }
+    // 使用分批查询获取文件信息，避免 URL 过长
+    const files = await queryInBatches<{
+      id: string;
+      original_name: string;
+      display_name: string | null;
+      stored_key: string;
+      shop_id: string | null;
+    }>(supabase, "uploaded_files", "id", fileIds);
 
     if (!files || files.length === 0) {
       return NextResponse.json({ error: "未找到文件" }, { status: 404 });
     }
 
     // 获取店铺信息
-    const shopIds = [...new Set(files.map((f) => f.shop_id).filter(Boolean))];
+    const shopIds = [...new Set(files.map((f) => f.shop_id).filter(Boolean))] as string[];
     const shopsMap: Record<string, { name: string; site: string; platform: string }> = {};
 
     if (shopIds.length > 0) {
-      const { data: shopsData } = await supabase
-        .from("shops")
-        .select("id, name, site, platform")
-        .in("id", shopIds);
+      const shopsData = await queryInBatches<{ id: string; name: string; site: string; platform: string }>(
+        supabase,
+        "shops",
+        "id",
+        shopIds
+      );
 
       if (shopsData) {
         shopsData.forEach((shop) => {
