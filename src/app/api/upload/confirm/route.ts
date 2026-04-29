@@ -30,8 +30,33 @@ export async function POST(request: NextRequest) {
       ? `${exportType}${ext ? '.' + ext : ''}`
       : (displayName || objectKey.split("/").pop() || originalName);
 
-    // 记录到数据库
+    // 检查是否已存在相同店铺、相同保存文件类型的文件
     const supabase = getSupabaseClient();
+    if (shopId && exportType) {
+      const { data: existingFiles } = await supabase
+        .from("uploaded_files")
+        .select("id, stored_key")
+        .eq("shop_id", shopId)
+        .eq("export_type", exportType);
+
+      if (existingFiles && existingFiles.length > 0) {
+        // 删除旧的存储文件
+        for (const oldFile of existingFiles) {
+          try {
+            await storage.deleteFile({ fileKey: oldFile.stored_key });
+          } catch (err) {
+            console.warn("删除旧文件失败:", err);
+          }
+        }
+        // 删除旧的数据库记录
+        await supabase
+          .from("uploaded_files")
+          .delete()
+          .in("id", existingFiles.map((f: { id: string }) => f.id));
+      }
+    }
+
+    // 记录到数据库
     const { error: insertError } = await supabase.from("uploaded_files").insert({
       original_name: originalName,
       stored_key: objectKey,
