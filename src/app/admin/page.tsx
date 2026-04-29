@@ -1280,6 +1280,7 @@ export default function AdminPage() {
                       className="min-w-[120px]"
                       maxDisplayItems={5}
                       multiple
+                      showSelectAll
                     >
                       {availablePlatforms.map((platform) => (
                         <SearchSelectItem key={platform} value={platform}>
@@ -1294,6 +1295,7 @@ export default function AdminPage() {
                       className="min-w-[120px]"
                       maxDisplayItems={5}
                       multiple
+                      showSelectAll
                     >
                       {availableSites.map((site) => (
                         <SearchSelectItem key={site} value={site}>
@@ -1308,6 +1310,7 @@ export default function AdminPage() {
                       className="min-w-[150px]"
                       maxDisplayItems={8}
                       multiple
+                      showSelectAll
                     >
                       {availableShops.map((shop) => (
                         <SearchSelectItem key={shop.id} value={shop.id}>
@@ -1322,6 +1325,7 @@ export default function AdminPage() {
                       className="min-w-[180px]"
                       maxDisplayItems={10}
                       multiple
+                      showSelectAll
                     >
                       <SearchSelectItem key="__NONE__" value="__NONE__">
                         未识别
@@ -1339,6 +1343,7 @@ export default function AdminPage() {
                       className="min-w-[150px]"
                       maxDisplayItems={10}
                       multiple
+                      showSelectAll
                     >
                       <SearchSelectItem key="__NONE__" value="__NONE__">
                         未设置
@@ -2658,6 +2663,7 @@ function CollectionProgressTable() {
           className="min-w-[120px]"
           maxDisplayItems={5}
           multiple
+          showSelectAll
         >
           {availableSites.map((site) => (
             <SearchSelectItem key={site} value={site}>{site}</SearchSelectItem>
@@ -2670,6 +2676,7 @@ function CollectionProgressTable() {
           className="min-w-[120px]"
           maxDisplayItems={5}
           multiple
+          showSelectAll
         >
           {availablePlatforms.map((platform) => (
             <SearchSelectItem key={platform} value={platform}>{platform}</SearchSelectItem>
@@ -2682,6 +2689,7 @@ function CollectionProgressTable() {
           className="min-w-[120px]"
           maxDisplayItems={5}
           multiple
+          showSelectAll
         >
           {availableManagers.map((manager) => (
             <SearchSelectItem key={manager} value={manager}>{manager}</SearchSelectItem>

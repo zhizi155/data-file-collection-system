@@ -17,6 +17,8 @@ interface SearchSelectProps {
   showClearButton?: boolean
   /** 是否多选模式，默认 false */
   multiple?: boolean
+  /** 是否显示全选按钮（多选模式下生效），默认 false */
+  showSelectAll?: boolean
 }
 
 interface SearchSelectOption {
@@ -36,6 +38,7 @@ function SearchSelect({
   maxDisplayItems = 8,
   showClearButton = true,
   multiple = false,
+  showSelectAll = false,
 }: SearchSelectProps) {
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState("")
@@ -174,6 +177,45 @@ function SearchSelect({
                   className="flex h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 py-1 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                 />
               </div>
+            </div>
+          )}
+          
+          {/* 全选选项（多选模式下显示） */}
+          {multiple && showSelectAll && filteredOptions.length > 0 && (
+            <div className="p-1 border-b">
+              <button
+                type="button"
+                onClick={() => {
+                  const allValues = filteredOptions.map((opt) => opt.value)
+                  const allSelected = allValues.every((v) => selectedValues.includes(v))
+                  if (allSelected) {
+                    // 取消全选：移除所有当前显示的选项
+                    const newValues = selectedValues.filter((v) => !allValues.includes(v))
+                    onValueChange(newValues)
+                  } else {
+                    // 全选：添加所有当前显示的选项（去重）
+                    const newValues = [...new Set([...selectedValues, ...allValues])]
+                    onValueChange(newValues)
+                  }
+                }}
+                className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent cursor-pointer"
+              >
+                <span className={cn(
+                  "flex-shrink-0 w-4 h-4 border rounded flex items-center justify-center",
+                  filteredOptions.every((opt) => selectedValues.includes(opt.value))
+                    ? "bg-primary border-primary"
+                    : "border-muted-foreground"
+                )}>
+                  {filteredOptions.every((opt) => selectedValues.includes(opt.value)) && (
+                    <CheckIcon className="h-3 w-3 text-primary-foreground" />
+                  )}
+                </span>
+                <span className={cn(
+                  filteredOptions.every((opt) => selectedValues.includes(opt.value)) && "font-medium"
+                )}>
+                  全选当前页 ({filteredOptions.length})
+                </span>
+              </button>
             </div>
           )}
           
