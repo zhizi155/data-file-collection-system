@@ -407,11 +407,10 @@ export default function AdminPage() {
       const allRes = await fetch(`/api/files?${allParams.toString()}`);
       const allData = await allRes.json();
       if (allData.success && allData.data) {
-        // 联动计算逻辑：
-        // 1. 店铺/平台/站点 是联动的触发条件，选择后会影响其他筛选框的选项
-        // 2. 日期区间/保存文件名 只是筛选条件，不影响其他筛选框的选项（支持多选）
+        // 联动计算逻辑：所有5个筛选框（店铺/平台/站点/日期区间/保存文件名）全部联动
+        // 选择任一筛选条件，会影响其他筛选框的可用选项
         
-        // 第一步：用店铺/平台/站点筛选数据（用于计算联动后的选项）
+        // 第一步：用所有筛选条件筛选数据（用于计算联动后的选项）
         let linkedData = allData.data;
 
         if (fileFilterShop.length > 0) {
@@ -425,9 +424,40 @@ export default function AdminPage() {
           const siteShopIds = shops.filter((s) => fileFilterSite.includes(s.site)).map((s) => s.id);
           linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && siteShopIds.includes(f.shop_id));
         }
+        // 日期区间筛选也参与联动
+        if (fileFilterDateRange.length > 0) {
+          const includeNone = fileFilterDateRange.includes("__NONE__");
+          const filteredDateRanges = fileFilterDateRange.filter((dr) => dr !== "__NONE__");
+          linkedData = linkedData.filter((f: UploadedFile) => {
+            if (includeNone && filteredDateRanges.length === 0) {
+              return f.date_range === null;
+            }
+            if (includeNone && filteredDateRanges.length > 0) {
+              if (f.date_range === null) return true;
+              return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
+            }
+            return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
+          });
+        }
+        // 保存文件名筛选也参与联动
+        if (fileFilterDisplayName.length > 0) {
+          const includeNone = fileFilterDisplayName.includes("__NONE__");
+          const filteredDisplayNames = fileFilterDisplayName.filter((dn) => dn !== "__NONE__");
+          linkedData = linkedData.filter((f: UploadedFile) => {
+            const fileDisplayName = f.display_name || null;
+            if (includeNone && filteredDisplayNames.length === 0) {
+              return fileDisplayName === null;
+            }
+            if (includeNone && filteredDisplayNames.length > 0) {
+              if (fileDisplayName === null) return true;
+              return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
+            }
+            return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
+          });
+        }
 
         // 根据联动后的数据，更新各筛选框的选项
-        // 店铺/平台/站点选项（基于其他筛选条件联动后的数据）
+        // 店铺/平台/站点选项（基于所有筛选条件联动后的数据）
         const shopIdsInLinked = [...new Set(linkedData.map((f: UploadedFile) => f.shop_id).filter(Boolean))];
         const shopsInLinked = shops.filter((s) => shopIdsInLinked.includes(s.id));
         setAvailableShops(shopsInLinked);
@@ -438,7 +468,7 @@ export default function AdminPage() {
         const sitesInLinked = [...new Set(shopsInLinked.map((s) => s.site).filter(Boolean))].sort();
         setAvailableSites(sitesInLinked);
 
-        // 日期区间和保存文件名选项（基于店铺/平台/站点联动后的数据，但保持多选能力）
+        // 日期区间和保存文件名选项（基于所有筛选条件联动后的数据）
         const linkedDateRanges = [...new Set(
           linkedData
             .map((f: UploadedFile) => f.date_range)
@@ -452,42 +482,6 @@ export default function AdminPage() {
             .filter(Boolean) as string[]
         )].sort();
         setAvailableDisplayNames(linkedDisplayNames);
-
-        // 第二步：用所有筛选条件（包括日期区间和保存文件名）筛选最终数据
-        let finalData = linkedData;
-
-        // 日期区间筛选（支持多选，不影响其他筛选框选项）
-        if (fileFilterDateRange.length > 0) {
-          const includeNone = fileFilterDateRange.includes("__NONE__");
-          const filteredDateRanges = fileFilterDateRange.filter((dr) => dr !== "__NONE__");
-          finalData = finalData.filter((f: UploadedFile) => {
-            if (includeNone && filteredDateRanges.length === 0) {
-              return f.date_range === null;
-            }
-            if (includeNone && filteredDateRanges.length > 0) {
-              if (f.date_range === null) return true;
-              return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
-            }
-            return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
-          });
-        }
-
-        // 保存文件名筛选（支持多选，不影响其他筛选框选项）
-        if (fileFilterDisplayName.length > 0) {
-          const includeNone = fileFilterDisplayName.includes("__NONE__");
-          const filteredDisplayNames = fileFilterDisplayName.filter((dn) => dn !== "__NONE__");
-          finalData = finalData.filter((f: UploadedFile) => {
-            const fileDisplayName = f.display_name || null;
-            if (includeNone && filteredDisplayNames.length === 0) {
-              return fileDisplayName === null;
-            }
-            if (includeNone && filteredDisplayNames.length > 0) {
-              if (fileDisplayName === null) return true;
-              return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
-            }
-            return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
-          });
-        }
       }
 
       // 获取筛选后分页的数据
