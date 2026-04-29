@@ -2478,7 +2478,13 @@ function CollectionProgressTable() {
   // 筛选状态
   const [filterSite, setFilterSite] = useState<string[]>([]);
   const [filterPlatform, setFilterPlatform] = useState<string[]>([]);
+  const [filterManager, setFilterManager] = useState<string[]>([]);
   const [filterUploaded, setFilterUploaded] = useState<string>(""); // "" | "yes" | "no"
+  
+  // 联动后的可用选项
+  const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([]);
+  const [availableSites, setAvailableSites] = useState<string[]>([]);
+  const [availableManagers, setAvailableManagers] = useState<string[]>([]);
 
   useEffect(() => {
     loadProgressData();
@@ -2553,6 +2559,14 @@ function CollectionProgressTable() {
         });
 
         setProgressData(progressList);
+        
+        // 初始化联动选项
+        const allPlatforms = [...new Set(progressList.map((d) => d.shopPlatform).filter(Boolean))].sort();
+        const allSites = [...new Set(progressList.map((d) => d.shopSite).filter(Boolean))].sort();
+        const allManagers = [...new Set(progressList.map((d) => d.shopManager).filter(Boolean) as string[])].sort();
+        setAvailablePlatforms(allPlatforms);
+        setAvailableSites(allSites);
+        setAvailableManagers(allManagers);
       }
     } catch (err) {
       console.error("加载收集进度失败:", err);
@@ -2560,6 +2574,34 @@ function CollectionProgressTable() {
       setLoading(false);
     }
   };
+
+  // 联动计算逻辑
+  useEffect(() => {
+    if (progressData.length === 0) return;
+    
+    // 用站点/平台/负责人筛选数据（用于计算联动后的选项）
+    let linkedData = progressData;
+
+    if (filterSite.length > 0) {
+      linkedData = linkedData.filter((item) => filterSite.includes(item.shopSite));
+    }
+    if (filterPlatform.length > 0) {
+      linkedData = linkedData.filter((item) => filterPlatform.includes(item.shopPlatform));
+    }
+    if (filterManager.length > 0) {
+      linkedData = linkedData.filter((item) => filterManager.includes(item.shopManager || ""));
+    }
+
+    // 根据联动后的数据，更新各筛选框的选项
+    const platformsInLinked = [...new Set(linkedData.map((d) => d.shopPlatform).filter(Boolean))].sort();
+    setAvailablePlatforms(platformsInLinked);
+
+    const sitesInLinked = [...new Set(linkedData.map((d) => d.shopSite).filter(Boolean))].sort();
+    setAvailableSites(sitesInLinked);
+
+    const managersInLinked = [...new Set(linkedData.map((d) => d.shopManager).filter(Boolean) as string[])].sort();
+    setAvailableManagers(managersInLinked);
+  }, [progressData, filterSite, filterPlatform, filterManager]);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "-";
@@ -2582,6 +2624,12 @@ function CollectionProgressTable() {
     // 平台筛选
     if (filterPlatform.length > 0 && !filterPlatform.includes(item.shopPlatform)) {
       return false;
+    }
+    // 负责人筛选
+    if (filterManager.length > 0) {
+      if (!filterManager.includes(item.shopManager || "")) {
+        return false;
+      }
     }
     // 是否上传筛选
     if (filterUploaded === "yes" && item.uploadCount === 0) {
@@ -2610,7 +2658,7 @@ function CollectionProgressTable() {
           maxDisplayItems={5}
           multiple
         >
-          {[...new Set(progressData.map((d) => d.shopSite))].map((site) => (
+          {availableSites.map((site) => (
             <SearchSelectItem key={site} value={site}>{site}</SearchSelectItem>
           ))}
         </SearchSelect>
@@ -2622,8 +2670,20 @@ function CollectionProgressTable() {
           maxDisplayItems={5}
           multiple
         >
-          {[...new Set(progressData.map((d) => d.shopPlatform))].map((platform) => (
+          {availablePlatforms.map((platform) => (
             <SearchSelectItem key={platform} value={platform}>{platform}</SearchSelectItem>
+          ))}
+        </SearchSelect>
+        <SearchSelect
+          value={filterManager}
+          onValueChange={setFilterManager as (value: string | string[]) => void}
+          placeholder="全部负责人"
+          className="min-w-[120px]"
+          maxDisplayItems={5}
+          multiple
+        >
+          {availableManagers.map((manager) => (
+            <SearchSelectItem key={manager} value={manager}>{manager}</SearchSelectItem>
           ))}
         </SearchSelect>
         <SearchSelect
@@ -2636,13 +2696,14 @@ function CollectionProgressTable() {
           <SearchSelectItem value="yes">已上传</SearchSelectItem>
           <SearchSelectItem value="no">未上传</SearchSelectItem>
         </SearchSelect>
-        {(filterSite.length > 0 || filterPlatform.length > 0 || filterUploaded) && (
+        {(filterSite.length > 0 || filterPlatform.length > 0 || filterManager.length > 0 || filterUploaded) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setFilterSite([]);
               setFilterPlatform([]);
+              setFilterManager([]);
               setFilterUploaded("");
             }}
           >
