@@ -401,10 +401,12 @@ export default function AdminPage() {
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
-      // 先获取所有数据（用于计算联动筛选选项）
-      const allParams = new URLSearchParams();
-      allParams.set("getAll", "true");
-      const allRes = await fetch(`/api/files?${allParams.toString()}`);
+      // 先获取所有数据（用于计算联动筛选选项）- 使用 POST 避免 URL 过长
+      const allRes = await fetch("/api/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ getAll: true }),
+      });
       const allData = await allRes.json();
       if (allData.success && allData.data) {
         // 联动计算逻辑：所有5个筛选框（店铺/平台/站点/日期区间/保存文件名）全部联动
@@ -485,15 +487,21 @@ export default function AdminPage() {
       }
 
       // 获取筛选后分页的数据
-      const params = new URLSearchParams();
-      if (fileFilterShop.length > 0) params.set("shopId", fileFilterShop.join(","));
-      if (fileFilterPlatform.length > 0) params.set("platform", fileFilterPlatform.join(","));
-      if (fileFilterSite.length > 0) params.set("site", fileFilterSite.join(","));
-      if (fileFilterDateRange.length > 0) params.set("dateRange", fileFilterDateRange.join(","));
-      if (fileFilterDisplayName.length > 0) params.set("displayName", fileFilterDisplayName.join(","));
-      params.set("limit", pageSize.toString());
-      params.set("offset", ((currentPage - 1) * pageSize).toString());
-      const res = await fetch(`/api/files?${params.toString()}`);
+      // 使用 POST 获取分页数据，避免 URL 过长
+      const requestBody: Record<string, unknown> = {
+        limit: pageSize,
+        offset: (currentPage - 1) * pageSize,
+      };
+      if (fileFilterShop.length > 0) requestBody.shopId = fileFilterShop.join(",");
+      if (fileFilterPlatform.length > 0) requestBody.platform = fileFilterPlatform.join(",");
+      if (fileFilterSite.length > 0) requestBody.site = fileFilterSite.join(",");
+      if (fileFilterDateRange.length > 0) requestBody.dateRange = fileFilterDateRange.join(",");
+      if (fileFilterDisplayName.length > 0) requestBody.displayName = fileFilterDisplayName.join(",");
+      const res = await fetch("/api/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
       const data = await res.json();
       if (data.success) {
         setFiles(data.data);
@@ -2500,8 +2508,12 @@ function CollectionProgressTable() {
       const shopsRes = await fetch("/api/shops?active=true");
       const shopsData = await shopsRes.json();
       
-      // 获取所有上传记录
-      const filesRes = await fetch("/api/files?limit=10000");
+      // 获取所有上传记录 - 使用 POST 避免 URL 过长
+      const filesRes = await fetch("/api/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 10000 }),
+      });
       const filesData = await filesRes.json();
 
       if (shopsData.success && filesData.success) {
