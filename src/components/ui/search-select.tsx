@@ -63,7 +63,8 @@ function SearchSelect({
   }
 
   const allOptions = getOptions()
-  const showSearch = allOptions.length > maxDisplayItems
+  // 多选模式或选项较多时显示搜索框
+  const showSearch = multiple || allOptions.length > maxDisplayItems
 
   // 统一为数组处理
   const selectedValues: string[] = React.useMemo(() => {
