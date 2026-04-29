@@ -739,8 +739,8 @@ export default function AdminPage() {
         limit: pageSize,
       };
 
-      // 获取指定页数范围的所有文件ID
-      const allFileIds: string[] = [];
+      // 获取指定页数范围的所有文件
+      const allFiles: UploadedFile[] = [];
       const startOffset = (downloadStartPage - 1) * pageSize;
       const endOffset = downloadEndPage * pageSize;
       
@@ -753,19 +753,30 @@ export default function AdminPage() {
         });
         const data = await res.json();
         if (data.success && data.data) {
-          allFileIds.push(...data.data.map((f: UploadedFile) => f.id));
+          allFiles.push(...data.data);
         }
       }
 
-      if (allFileIds.length === 0) {
+      if (allFiles.length === 0) {
         setError("该页数范围内没有文件可下载");
         setDownloading(false);
         setDownloadStatus("");
         return;
       }
 
+      // 按店铺+保存类型去重，每个组合只保留最新的一条
+      const uniqueFilesMap = new Map<string, UploadedFile>();
+      for (const file of allFiles) {
+        const key = `${file.shop_id}|${file.export_type}`;
+        if (!uniqueFilesMap.has(key) || 
+            new Date(file.created_at) > new Date(uniqueFilesMap.get(key)!.created_at)) {
+          uniqueFilesMap.set(key, file);
+        }
+      }
+      const allFileIds = Array.from(uniqueFilesMap.values()).map(f => f.id);
+
       setDownloadProgress(20);
-      setDownloadStatus(`正在打包 ${allFileIds.length} 个文件...`);
+      setDownloadStatus(`正在打包 ${allFileIds.length} 个文件（每种类型最新1个）...`);
 
       // 调用服务端批量下载API
       const response = await fetch("/api/files/batch-download", {
