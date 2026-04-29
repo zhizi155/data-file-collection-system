@@ -22,6 +22,7 @@ import {
   CheckSquare,
   Square,
   Loader2,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -124,11 +125,18 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("files");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  // 实际筛选状态
   const [fileFilterShop, setFileFilterShop] = useState<string[]>([]);
   const [fileFilterPlatform, setFileFilterPlatform] = useState<string[]>([]);
   const [fileFilterSite, setFileFilterSite] = useState<string[]>([]);
   const [fileFilterDateRange, setFileFilterDateRange] = useState<string[]>([]);
   const [fileFilterDisplayName, setFileFilterDisplayName] = useState<string[]>([]);
+  // 临时筛选状态（确认前使用）
+  const [tempFileFilterShop, setTempFileFilterShop] = useState<string[]>([]);
+  const [tempFileFilterPlatform, setTempFileFilterPlatform] = useState<string[]>([]);
+  const [tempFileFilterSite, setTempFileFilterSite] = useState<string[]>([]);
+  const [tempFileFilterDateRange, setTempFileFilterDateRange] = useState<string[]>([]);
+  const [tempFileFilterDisplayName, setTempFileFilterDisplayName] = useState<string[]>([]);
   
   // 联动筛选的可选项（基于其他筛选条件过滤后的数据）
   const [availableDateRanges, setAvailableDateRanges] = useState<string[]>([]); // 所有可用的日期区间
@@ -505,6 +513,31 @@ export default function AdminPage() {
       setFilesLoading(false);
     }
   }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize, shops]);
+
+  // 确认筛选（将临时筛选值应用到实际筛选）
+  const confirmFileFilters = () => {
+    setFileFilterShop(tempFileFilterShop);
+    setFileFilterPlatform(tempFileFilterPlatform);
+    setFileFilterSite(tempFileFilterSite);
+    setFileFilterDateRange(tempFileFilterDateRange);
+    setFileFilterDisplayName(tempFileFilterDisplayName);
+    setCurrentPage(1);
+  };
+
+  // 清除筛选（同时清除临时和实际筛选值）
+  const clearFileFilters = () => {
+    setFileFilterShop([]);
+    setFileFilterPlatform([]);
+    setFileFilterSite([]);
+    setFileFilterDateRange([]);
+    setFileFilterDisplayName([]);
+    setTempFileFilterShop([]);
+    setTempFileFilterPlatform([]);
+    setTempFileFilterSite([]);
+    setTempFileFilterDateRange([]);
+    setTempFileFilterDisplayName([]);
+    setCurrentPage(1);
+  };
 
   // 当页码或每页条数变化时重置到第一页
   useEffect(() => {
@@ -1272,10 +1305,10 @@ export default function AdminPage() {
                     </CardTitle>
                     <CardDescription>查看所有上传文件记录，支持批量导出/下载</CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <SearchSelect
-                      value={fileFilterPlatform}
-                      onValueChange={setFileFilterPlatform as (value: string | string[]) => void}
+                      value={tempFileFilterPlatform}
+                      onValueChange={setTempFileFilterPlatform as (value: string | string[]) => void}
                       placeholder="全部平台"
                       className="min-w-[120px]"
                       maxDisplayItems={5}
@@ -1288,8 +1321,8 @@ export default function AdminPage() {
                       ))}
                     </SearchSelect>
                     <SearchSelect
-                      value={fileFilterSite}
-                      onValueChange={setFileFilterSite as (value: string | string[]) => void}
+                      value={tempFileFilterSite}
+                      onValueChange={setTempFileFilterSite as (value: string | string[]) => void}
                       placeholder="全部站点"
                       className="min-w-[120px]"
                       maxDisplayItems={5}
@@ -1302,8 +1335,8 @@ export default function AdminPage() {
                       ))}
                     </SearchSelect>
                     <SearchSelect
-                      value={fileFilterShop}
-                      onValueChange={setFileFilterShop as (value: string | string[]) => void}
+                      value={tempFileFilterShop}
+                      onValueChange={setTempFileFilterShop as (value: string | string[]) => void}
                       placeholder="全部店铺"
                       className="min-w-[150px]"
                       maxDisplayItems={8}
@@ -1316,8 +1349,8 @@ export default function AdminPage() {
                       ))}
                     </SearchSelect>
                     <SearchSelect
-                      value={fileFilterDateRange}
-                      onValueChange={setFileFilterDateRange as (value: string | string[]) => void}
+                      value={tempFileFilterDateRange}
+                      onValueChange={setTempFileFilterDateRange as (value: string | string[]) => void}
                       placeholder="日期区间"
                       className="min-w-[180px]"
                       maxDisplayItems={10}
@@ -1333,8 +1366,8 @@ export default function AdminPage() {
                       ))}
                     </SearchSelect>
                     <SearchSelect
-                      value={fileFilterDisplayName}
-                      onValueChange={setFileFilterDisplayName as (value: string | string[]) => void}
+                      value={tempFileFilterDisplayName}
+                      onValueChange={setTempFileFilterDisplayName as (value: string | string[]) => void}
                       placeholder="保存文件名"
                       className="min-w-[150px]"
                       maxDisplayItems={10}
@@ -1349,6 +1382,24 @@ export default function AdminPage() {
                         </SearchSelectItem>
                       ))}
                     </SearchSelect>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={confirmFileFilters}
+                      className="gap-1"
+                    >
+                      <Search className="w-4 h-4" />
+                      确认
+                    </Button>
+                    {(tempFileFilterShop.length > 0 || tempFileFilterPlatform.length > 0 || tempFileFilterSite.length > 0 || tempFileFilterDateRange.length > 0 || tempFileFilterDisplayName.length > 0) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearFileFilters}
+                      >
+                        清除筛选
+                      </Button>
+                    )}
                     {/* 主账号可见的操作按钮 */}
                     {isMainAccount && (
                       <>
@@ -2469,11 +2520,16 @@ function CollectionProgressTable() {
     lastUploadTime: string | null;
   }>>([]);
   const [loading, setLoading] = useState(true);
-  // 筛选状态
+  // 实际筛选状态
   const [filterSite, setFilterSite] = useState<string[]>([]);
   const [filterPlatform, setFilterPlatform] = useState<string[]>([]);
   const [filterManager, setFilterManager] = useState<string[]>([]);
   const [filterUploaded, setFilterUploaded] = useState<string>(""); // "" | "yes" | "no"
+  // 临时筛选状态（确认前使用）
+  const [tempFilterSite, setTempFilterSite] = useState<string[]>([]);
+  const [tempFilterPlatform, setTempFilterPlatform] = useState<string[]>([]);
+  const [tempFilterManager, setTempFilterManager] = useState<string[]>([]);
+  const [tempFilterUploaded, setTempFilterUploaded] = useState<string>(""); // "" | "yes" | "no"
   
   // 联动后的可用选项
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([]);
@@ -2602,7 +2658,27 @@ function CollectionProgressTable() {
 
     const managersInLinked = [...new Set(linkedData.map((d) => d.shopManager).filter(Boolean) as string[])].sort();
     setAvailableManagers(managersInLinked);
-  }, [progressData, filterSite, filterPlatform, filterManager, filterUploaded]);
+  }, [progressData, tempFilterSite, tempFilterPlatform, tempFilterManager, tempFilterUploaded]);
+
+  // 确认筛选（将临时筛选值应用到实际筛选）
+  const confirmFilters = () => {
+    setFilterSite(tempFilterSite);
+    setFilterPlatform(tempFilterPlatform);
+    setFilterManager(tempFilterManager);
+    setFilterUploaded(tempFilterUploaded);
+  };
+
+  // 清除筛选（同时清除临时和实际筛选值）
+  const clearFilters = () => {
+    setFilterSite([]);
+    setFilterPlatform([]);
+    setFilterManager([]);
+    setFilterUploaded("");
+    setTempFilterSite([]);
+    setTempFilterPlatform([]);
+    setTempFilterManager([]);
+    setTempFilterUploaded("");
+  };
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "-";
@@ -2652,8 +2728,8 @@ function CollectionProgressTable() {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-sm text-slate-500">筛选:</span>
         <SearchSelect
-          value={filterSite}
-          onValueChange={setFilterSite as (value: string | string[]) => void}
+          value={tempFilterSite}
+          onValueChange={setTempFilterSite as (value: string | string[]) => void}
           placeholder="全部站点"
           className="min-w-[120px]"
           maxDisplayItems={5}
@@ -2664,8 +2740,8 @@ function CollectionProgressTable() {
           ))}
         </SearchSelect>
         <SearchSelect
-          value={filterPlatform}
-          onValueChange={setFilterPlatform as (value: string | string[]) => void}
+          value={tempFilterPlatform}
+          onValueChange={setTempFilterPlatform as (value: string | string[]) => void}
           placeholder="全部平台"
           className="min-w-[120px]"
           maxDisplayItems={5}
@@ -2676,8 +2752,8 @@ function CollectionProgressTable() {
           ))}
         </SearchSelect>
         <SearchSelect
-          value={filterManager}
-          onValueChange={setFilterManager as (value: string | string[]) => void}
+          value={tempFilterManager}
+          onValueChange={setTempFilterManager as (value: string | string[]) => void}
           placeholder="全部负责人"
           className="min-w-[120px]"
           maxDisplayItems={5}
@@ -2688,8 +2764,8 @@ function CollectionProgressTable() {
           ))}
         </SearchSelect>
         <SearchSelect
-          value={filterUploaded}
-          onValueChange={(val) => setFilterUploaded(typeof val === 'string' ? val : '')}
+          value={tempFilterUploaded}
+          onValueChange={(val) => setTempFilterUploaded(typeof val === 'string' ? val : '')}
           placeholder="是否上传"
           className="min-w-[120px]"
           showClearButton
@@ -2697,16 +2773,20 @@ function CollectionProgressTable() {
           <SearchSelectItem value="yes">已上传</SearchSelectItem>
           <SearchSelectItem value="no">未上传</SearchSelectItem>
         </SearchSelect>
-        {(filterSite.length > 0 || filterPlatform.length > 0 || filterManager.length > 0 || filterUploaded) && (
+        <Button
+          variant="default"
+          size="sm"
+          onClick={confirmFilters}
+          className="gap-1"
+        >
+          <Search className="w-4 h-4" />
+          确认
+        </Button>
+        {(tempFilterSite.length > 0 || tempFilterPlatform.length > 0 || tempFilterManager.length > 0 || tempFilterUploaded) && (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => {
-              setFilterSite([]);
-              setFilterPlatform([]);
-              setFilterManager([]);
-              setFilterUploaded("");
-            }}
+            onClick={clearFilters}
           >
             清除筛选
           </Button>
