@@ -721,14 +721,15 @@ export default function AdminPage() {
       setDownloadProgress(0);
       setDownloadStatus("正在获取文件列表...");
 
-      // 构建筛选条件参数
-      const params = new URLSearchParams();
-      if (fileFilterShop.length > 0) params.set("shopId", fileFilterShop.join(","));
-      if (fileFilterPlatform.length > 0) params.set("platform", fileFilterPlatform.join(","));
-      if (fileFilterSite.length > 0) params.set("site", fileFilterSite.join(","));
-      if (fileFilterDateRange.length > 0) params.set("dateRange", fileFilterDateRange.join(","));
-      if (fileFilterDisplayName.length > 0) params.set("displayName", fileFilterDisplayName.join(","));
-      params.set("limit", pageSize.toString());
+      // 构建筛选条件参数（使用 POST 请求避免 URL 过长）
+      const requestBody = {
+        shopId: fileFilterShop.length > 0 ? fileFilterShop : undefined,
+        platform: fileFilterPlatform.length > 0 ? fileFilterPlatform : undefined,
+        site: fileFilterSite.length > 0 ? fileFilterSite : undefined,
+        dateRange: fileFilterDateRange.length > 0 ? fileFilterDateRange : undefined,
+        displayName: fileFilterDisplayName.length > 0 ? fileFilterDisplayName : undefined,
+        limit: pageSize,
+      };
 
       // 获取指定页数范围的所有文件ID
       const allFileIds: string[] = [];
@@ -737,8 +738,11 @@ export default function AdminPage() {
       
       // 分批获取文件
       for (let offset = startOffset; offset < endOffset; offset += pageSize) {
-        params.set("offset", offset.toString());
-        const res = await fetch(`/api/files?${params.toString()}`);
+        const res = await fetch("/api/files", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...requestBody, offset }),
+        });
         const data = await res.json();
         if (data.success && data.data) {
           allFileIds.push(...data.data.map((f: UploadedFile) => f.id));
