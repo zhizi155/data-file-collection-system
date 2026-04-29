@@ -1313,6 +1313,10 @@ export default function AdminPage() {
                       className="min-w-[120px]"
                       maxDisplayItems={5}
                       multiple
+                      showConfirmButton
+                      onConfirm={() => {
+                        setFileFilterPlatform(tempFileFilterPlatform);
+                      }}
                     >
                       {availablePlatforms.map((platform) => (
                         <SearchSelectItem key={platform} value={platform}>
@@ -1327,6 +1331,10 @@ export default function AdminPage() {
                       className="min-w-[120px]"
                       maxDisplayItems={5}
                       multiple
+                      showConfirmButton
+                      onConfirm={() => {
+                        setFileFilterSite(tempFileFilterSite);
+                      }}
                     >
                       {availableSites.map((site) => (
                         <SearchSelectItem key={site} value={site}>
@@ -1341,6 +1349,10 @@ export default function AdminPage() {
                       className="min-w-[150px]"
                       maxDisplayItems={8}
                       multiple
+                      showConfirmButton
+                      onConfirm={() => {
+                        setFileFilterShop(tempFileFilterShop);
+                      }}
                     >
                       {availableShops.map((shop) => (
                         <SearchSelectItem key={shop.id} value={shop.id}>
@@ -1355,6 +1367,10 @@ export default function AdminPage() {
                       className="min-w-[180px]"
                       maxDisplayItems={10}
                       multiple
+                      showConfirmButton
+                      onConfirm={() => {
+                        setFileFilterDateRange(tempFileFilterDateRange);
+                      }}
                     >
                       <SearchSelectItem key="__NONE__" value="__NONE__">
                         未识别
@@ -1372,6 +1388,10 @@ export default function AdminPage() {
                       className="min-w-[150px]"
                       maxDisplayItems={10}
                       multiple
+                      showConfirmButton
+                      onConfirm={() => {
+                        setFileFilterDisplayName(tempFileFilterDisplayName);
+                      }}
                     >
                       <SearchSelectItem key="__NONE__" value="__NONE__">
                         未设置
@@ -1382,16 +1402,7 @@ export default function AdminPage() {
                         </SearchSelectItem>
                       ))}
                     </SearchSelect>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={confirmFileFilters}
-                      className="gap-1"
-                    >
-                      <Search className="w-4 h-4" />
-                      确认
-                    </Button>
-                    {(tempFileFilterShop.length > 0 || tempFileFilterPlatform.length > 0 || tempFileFilterSite.length > 0 || tempFileFilterDateRange.length > 0 || tempFileFilterDisplayName.length > 0) && (
+                    {(fileFilterShop.length > 0 || fileFilterPlatform.length > 0 || fileFilterSite.length > 0 || fileFilterDateRange.length > 0 || fileFilterDisplayName.length > 0) && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -2734,6 +2745,10 @@ function CollectionProgressTable() {
           className="min-w-[120px]"
           maxDisplayItems={5}
           multiple
+          showConfirmButton
+          onConfirm={() => {
+            setFilterSite(tempFilterSite);
+          }}
         >
           {availableSites.map((site) => (
             <SearchSelectItem key={site} value={site}>{site}</SearchSelectItem>
@@ -2746,6 +2761,10 @@ function CollectionProgressTable() {
           className="min-w-[120px]"
           maxDisplayItems={5}
           multiple
+          showConfirmButton
+          onConfirm={() => {
+            setFilterPlatform(tempFilterPlatform);
+          }}
         >
           {availablePlatforms.map((platform) => (
             <SearchSelectItem key={platform} value={platform}>{platform}</SearchSelectItem>
@@ -2758,6 +2777,10 @@ function CollectionProgressTable() {
           className="min-w-[120px]"
           maxDisplayItems={5}
           multiple
+          showConfirmButton
+          onConfirm={() => {
+            setFilterManager(tempFilterManager);
+          }}
         >
           {availableManagers.map((manager) => (
             <SearchSelectItem key={manager} value={manager}>{manager}</SearchSelectItem>
@@ -2769,20 +2792,15 @@ function CollectionProgressTable() {
           placeholder="是否上传"
           className="min-w-[120px]"
           showClearButton
+          showConfirmButton
+          onConfirm={() => {
+            setFilterUploaded(tempFilterUploaded);
+          }}
         >
           <SearchSelectItem value="yes">已上传</SearchSelectItem>
           <SearchSelectItem value="no">未上传</SearchSelectItem>
         </SearchSelect>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={confirmFilters}
-          className="gap-1"
-        >
-          <Search className="w-4 h-4" />
-          确认
-        </Button>
-        {(tempFilterSite.length > 0 || tempFilterPlatform.length > 0 || tempFilterManager.length > 0 || tempFilterUploaded) && (
+        {(filterSite.length > 0 || filterPlatform.length > 0 || filterManager.length > 0 || filterUploaded) && (
           <Button
             variant="ghost"
             size="sm"
