@@ -514,14 +514,77 @@ export default function AdminPage() {
     }
   }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize, shops]);
 
-  // 确认筛选（将临时筛选值应用到实际筛选）
-  const confirmFileFilters = () => {
+  // 确认筛选（用临时值计算联动选项后再应用）
+  const confirmFileFilters = async () => {
+    // 先获取所有数据，用于计算联动选项
+    setFilesLoading(true);
+    try {
+      const allParams = new URLSearchParams();
+      allParams.set("getAll", "true");
+      const allRes = await fetch(`/api/files?${allParams.toString()}`);
+      const allData = await allRes.json();
+      if (allData.success && allData.data) {
+        // 用所有临时筛选值计算联动后的选项
+        let linkedData = allData.data;
+
+        if (tempFileFilterShop.length > 0) {
+          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && tempFileFilterShop.includes(f.shop_id));
+        }
+        if (tempFileFilterPlatform.length > 0) {
+          const platformShopIds = shops.filter((s) => tempFileFilterPlatform.includes(s.platform)).map((s) => s.id);
+          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && platformShopIds.includes(f.shop_id));
+        }
+        if (tempFileFilterSite.length > 0) {
+          const siteShopIds = shops.filter((s) => tempFileFilterSite.includes(s.site)).map((s) => s.id);
+          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && siteShopIds.includes(f.shop_id));
+        }
+        if (tempFileFilterDateRange.length > 0) {
+          const includeNone = tempFileFilterDateRange.includes("__NONE__");
+          const filteredDateRanges = tempFileFilterDateRange.filter((dr) => dr !== "__NONE__");
+          linkedData = linkedData.filter((f: UploadedFile) => {
+            if (includeNone && filteredDateRanges.length === 0) return f.date_range === null;
+            if (includeNone && filteredDateRanges.length > 0) {
+              if (f.date_range === null) return true;
+              return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
+            }
+            return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
+          });
+        }
+        if (tempFileFilterDisplayName.length > 0) {
+          const includeNone = tempFileFilterDisplayName.includes("__NONE__");
+          const filteredDisplayNames = tempFileFilterDisplayName.filter((dn) => dn !== "__NONE__");
+          linkedData = linkedData.filter((f: UploadedFile) => {
+            const fileDisplayName = f.display_name || null;
+            if (includeNone && filteredDisplayNames.length === 0) return fileDisplayName === null;
+            if (includeNone && filteredDisplayNames.length > 0) {
+              if (fileDisplayName === null) return true;
+              return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
+            }
+            return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
+          });
+        }
+
+        // 根据联动后的数据更新可用选项
+        const shopIdsInLinked = [...new Set(linkedData.map((f: UploadedFile) => f.shop_id).filter(Boolean))];
+        const shopsInLinked = shops.filter((s) => shopIdsInLinked.includes(s.id));
+        setAvailableShops(shopsInLinked);
+        setAvailablePlatforms([...new Set(shopsInLinked.map((s) => s.platform).filter(Boolean))].sort());
+        setAvailableSites([...new Set(shopsInLinked.map((s) => s.site).filter(Boolean))].sort());
+        setAvailableDateRanges([...new Set(linkedData.map((f: UploadedFile) => f.date_range).filter(Boolean) as string[])].sort());
+        setAvailableDisplayNames([...new Set(linkedData.map((f: UploadedFile) => f.display_name).filter(Boolean) as string[])].sort());
+      }
+    } catch (err) {
+      console.error("计算联动选项失败:", err);
+    }
+    
+    // 应用筛选值
     setFileFilterShop(tempFileFilterShop);
     setFileFilterPlatform(tempFileFilterPlatform);
     setFileFilterSite(tempFileFilterSite);
     setFileFilterDateRange(tempFileFilterDateRange);
     setFileFilterDisplayName(tempFileFilterDisplayName);
     setCurrentPage(1);
+    setFilesLoading(false);
   };
 
   // 清除筛选（同时清除临时和实际筛选值）
@@ -1314,9 +1377,7 @@ export default function AdminPage() {
                       maxDisplayItems={5}
                       multiple
                       showConfirmButton
-                      onConfirm={() => {
-                        setFileFilterPlatform(tempFileFilterPlatform);
-                      }}
+                      onConfirm={confirmFileFilters}
                     >
                       {availablePlatforms.map((platform) => (
                         <SearchSelectItem key={platform} value={platform}>
@@ -1332,9 +1393,7 @@ export default function AdminPage() {
                       maxDisplayItems={5}
                       multiple
                       showConfirmButton
-                      onConfirm={() => {
-                        setFileFilterSite(tempFileFilterSite);
-                      }}
+                      onConfirm={confirmFileFilters}
                     >
                       {availableSites.map((site) => (
                         <SearchSelectItem key={site} value={site}>
@@ -1350,9 +1409,7 @@ export default function AdminPage() {
                       maxDisplayItems={8}
                       multiple
                       showConfirmButton
-                      onConfirm={() => {
-                        setFileFilterShop(tempFileFilterShop);
-                      }}
+                      onConfirm={confirmFileFilters}
                     >
                       {availableShops.map((shop) => (
                         <SearchSelectItem key={shop.id} value={shop.id}>
@@ -1368,9 +1425,7 @@ export default function AdminPage() {
                       maxDisplayItems={10}
                       multiple
                       showConfirmButton
-                      onConfirm={() => {
-                        setFileFilterDateRange(tempFileFilterDateRange);
-                      }}
+                      onConfirm={confirmFileFilters}
                     >
                       <SearchSelectItem key="__NONE__" value="__NONE__">
                         未识别
@@ -1389,9 +1444,7 @@ export default function AdminPage() {
                       maxDisplayItems={10}
                       multiple
                       showConfirmButton
-                      onConfirm={() => {
-                        setFileFilterDisplayName(tempFileFilterDisplayName);
-                      }}
+                      onConfirm={confirmFileFilters}
                     >
                       <SearchSelectItem key="__NONE__" value="__NONE__">
                         未设置
@@ -2671,8 +2724,34 @@ function CollectionProgressTable() {
     setAvailableManagers(managersInLinked);
   }, [progressData, tempFilterSite, tempFilterPlatform, tempFilterManager, tempFilterUploaded]);
 
-  // 确认筛选（将临时筛选值应用到实际筛选）
+  // 确认筛选（用临时值计算联动选项后再应用）
   const confirmFilters = () => {
+    // 用临时筛选值计算联动后的选项
+    let linkedData = progressData;
+
+    if (tempFilterSite.length > 0) {
+      linkedData = linkedData.filter((item) => tempFilterSite.includes(item.shopSite));
+    }
+    if (tempFilterPlatform.length > 0) {
+      linkedData = linkedData.filter((item) => tempFilterPlatform.includes(item.shopPlatform));
+    }
+    if (tempFilterManager.length > 0) {
+      linkedData = linkedData.filter((item) => tempFilterManager.includes(item.shopManager || ""));
+    }
+    if (tempFilterUploaded) {
+      if (tempFilterUploaded === "yes") {
+        linkedData = linkedData.filter((item) => item.uploadCount > 0);
+      } else if (tempFilterUploaded === "no") {
+        linkedData = linkedData.filter((item) => item.uploadCount === 0);
+      }
+    }
+
+    // 更新联动后的选项
+    setAvailablePlatforms([...new Set(linkedData.map((d) => d.shopPlatform).filter(Boolean))].sort());
+    setAvailableSites([...new Set(linkedData.map((d) => d.shopSite).filter(Boolean))].sort());
+    setAvailableManagers([...new Set(linkedData.map((d) => d.shopManager).filter(Boolean) as string[])].sort());
+
+    // 应用筛选值
     setFilterSite(tempFilterSite);
     setFilterPlatform(tempFilterPlatform);
     setFilterManager(tempFilterManager);
@@ -2746,9 +2825,7 @@ function CollectionProgressTable() {
           maxDisplayItems={5}
           multiple
           showConfirmButton
-          onConfirm={() => {
-            setFilterSite(tempFilterSite);
-          }}
+          onConfirm={confirmFilters}
         >
           {availableSites.map((site) => (
             <SearchSelectItem key={site} value={site}>{site}</SearchSelectItem>
@@ -2762,9 +2839,7 @@ function CollectionProgressTable() {
           maxDisplayItems={5}
           multiple
           showConfirmButton
-          onConfirm={() => {
-            setFilterPlatform(tempFilterPlatform);
-          }}
+          onConfirm={confirmFilters}
         >
           {availablePlatforms.map((platform) => (
             <SearchSelectItem key={platform} value={platform}>{platform}</SearchSelectItem>
@@ -2778,9 +2853,7 @@ function CollectionProgressTable() {
           maxDisplayItems={5}
           multiple
           showConfirmButton
-          onConfirm={() => {
-            setFilterManager(tempFilterManager);
-          }}
+          onConfirm={confirmFilters}
         >
           {availableManagers.map((manager) => (
             <SearchSelectItem key={manager} value={manager}>{manager}</SearchSelectItem>
@@ -2793,9 +2866,7 @@ function CollectionProgressTable() {
           className="min-w-[120px]"
           showClearButton
           showConfirmButton
-          onConfirm={() => {
-            setFilterUploaded(tempFilterUploaded);
-          }}
+          onConfirm={confirmFilters}
         >
           <SearchSelectItem value="yes">已上传</SearchSelectItem>
           <SearchSelectItem value="no">未上传</SearchSelectItem>
