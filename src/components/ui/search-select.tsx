@@ -17,10 +17,6 @@ interface SearchSelectProps {
   showClearButton?: boolean
   /** 是否多选模式，默认 false */
   multiple?: boolean
-  /** 是否显示确认按钮，默认 false */
-  showConfirmButton?: boolean
-  /** 确认按钮点击回调 */
-  onConfirm?: () => void
 }
 
 interface SearchSelectOption {
@@ -40,19 +36,11 @@ function SearchSelect({
   maxDisplayItems = 8,
   showClearButton = true,
   multiple = false,
-  showConfirmButton = false,
-  onConfirm,
 }: SearchSelectProps) {
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState("")
-  const [tempValue, setTempValue] = React.useState<string | string[]>(value)
   const containerRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
-
-  // 当外部 value 变化时，同步到临时值
-  React.useEffect(() => {
-    setTempValue(value)
-  }, [value])
 
   const getOptions = (): SearchSelectOption[] => {
     const options: SearchSelectOption[] = []
@@ -77,11 +65,11 @@ function SearchSelect({
   // 统一为数组处理
   const selectedValues: string[] = React.useMemo(() => {
     if (multiple) {
-      return Array.isArray(tempValue) ? tempValue : []
+      return Array.isArray(value) ? value : []
     } else {
-      return tempValue ? [tempValue as string] : []
+      return value ? [value as string] : []
     }
-  }, [tempValue, multiple])
+  }, [value, multiple])
 
   const filteredOptions = search
     ? allOptions.filter((opt) => opt.label.toLowerCase().includes(search.toLowerCase()))
@@ -92,15 +80,13 @@ function SearchSelect({
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setOpen(false)
         setSearch("")
-        // 取消时恢复原值
-        setTempValue(value)
       }
     }
     if (open) {
       document.addEventListener("mousedown", handleClickOutside)
     }
     return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [open, value])
+  }, [open])
 
   React.useEffect(() => {
     if (open && showSearch && inputRef.current) {
@@ -114,32 +100,18 @@ function SearchSelect({
       const newValues = selectedValues.includes(optionValue)
         ? selectedValues.filter((v) => v !== optionValue)
         : [...selectedValues, optionValue]
-      setTempValue(newValues)
+      onValueChange(newValues)
     } else {
       // 单选模式
-      setTempValue(optionValue)
+      onValueChange(optionValue)
       setOpen(false)
       setSearch("")
-      // 单选模式直接应用值
-      onValueChange(optionValue)
     }
   }
 
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setTempValue(multiple ? [] : "")
-    if (!showConfirmButton) {
-      onValueChange(multiple ? [] : "")
-    }
-  }
-
-  const handleConfirm = () => {
-    onValueChange(tempValue)
-    setOpen(false)
-    setSearch("")
-    if (onConfirm) {
-      onConfirm()
-    }
+    onValueChange(multiple ? [] : "")
   }
 
   // 获取显示的文本
@@ -165,7 +137,6 @@ function SearchSelect({
         onClick={() => {
           setOpen(!open)
           setSearch("")
-          setTempValue(value)
         }}
         className={cn(
           "border-input data-[placeholder]:text-muted-foreground flex items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 min-w-[120px]",
@@ -254,18 +225,6 @@ function SearchSelect({
               })
             )}
           </div>
-
-          {showConfirmButton && (
-            <div className="p-2 border-t bg-muted/50">
-              <button
-                type="button"
-                onClick={handleConfirm}
-                className="w-full h-8 px-3 py-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md hover:bg-primary/90 transition-colors"
-              >
-                确认
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>
