@@ -187,12 +187,12 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseClient();
 
-    // 解析参数
-    const shopIdList = Array.isArray(shopId) ? shopId : (shopId ? [shopId] : []);
-    const platformList = Array.isArray(platform) ? platform : (platform ? [platform] : []);
-    const siteList = Array.isArray(site) ? site : (site ? [site] : []);
-    const dateRangeList = dateRange ? (Array.isArray(dateRange) ? dateRange : [dateRange]) : [];
-    const displayNameList = displayName ? (Array.isArray(displayName) ? displayName : [displayName]) : [];
+    // 解析参数（支持逗号分隔的字符串或数组）
+    const shopIdList = Array.isArray(shopId) ? shopId : (shopId ? String(shopId).split(",").filter(Boolean) : []);
+    const platformList = Array.isArray(platform) ? platform : (platform ? String(platform).split(",").filter(Boolean) : []);
+    const siteList = Array.isArray(site) ? site : (site ? String(site).split(",").filter(Boolean) : []);
+    const dateRangeList = dateRange ? (Array.isArray(dateRange) ? dateRange : String(dateRange).split(",").filter(Boolean)) : [];
+    const displayNameList = displayName ? (Array.isArray(displayName) ? displayName : String(displayName).split(",").filter(Boolean)) : [];
 
     // 先获取需要筛选的店铺ID列表
     let filterShopIds: string[] | null = null;
