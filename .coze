@@ -2,13 +2,12 @@
 requires = [ "nodejs-24" ]
 template = "nextjs"
 version = "0.0.13"
-appliedPatches = [ "nextjs/validate@0.0.20" ]
+appliedPatches = [ ]
 
 [dev]
 build = [ "bash", "./scripts/prepare.sh" ]
 run = [ "bash", "./scripts/dev.sh" ]
 deps = [ "git" ]
-validate = [ "bash", "./scripts/validate.sh" ]
 
 [deploy]
 build = [ "bash", "./scripts/build.sh" ]

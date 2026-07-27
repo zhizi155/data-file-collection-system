@@ -75,25 +75,8 @@ function SearchSelect({
     }
   }, [value, multiple])
 
-  // 搜索筛选：先尝试精确匹配，如果没有则尝试以搜索词开头，最后尝试包含匹配
   const filteredOptions = search
-    ? (() => {
-        const searchLower = search.toLowerCase()
-        const exactMatches = allOptions.filter((opt) => opt.label.toLowerCase() === searchLower)
-        const startsWithMatches = allOptions.filter((opt) => opt.label.toLowerCase().startsWith(searchLower) && opt.label.toLowerCase() !== searchLower)
-        const containsMatches = allOptions.filter((opt) => opt.label.toLowerCase().includes(searchLower) && !opt.label.toLowerCase().startsWith(searchLower))
-        
-        // 如果有精确匹配，只返回精确匹配
-        if (exactMatches.length > 0) {
-          return exactMatches
-        }
-        // 如果有以搜索词开头的匹配，只返回这些
-        if (startsWithMatches.length > 0) {
-          return startsWithMatches
-        }
-        // 否则返回包含匹配
-        return containsMatches
-      })()
+    ? allOptions.filter((opt) => opt.label.toLowerCase().includes(search.toLowerCase()))
     : allOptions
 
   React.useEffect(() => {
