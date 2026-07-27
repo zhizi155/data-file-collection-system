@@ -76,7 +76,12 @@ function SearchSelect({
   }, [value, multiple])
 
   const filteredOptions = search
-    ? allOptions.filter((opt) => opt.label.toLowerCase().includes(search.toLowerCase()))
+    ? allOptions.filter((opt) => {
+        const labelLower = opt.label.toLowerCase()
+        const searchLower = search.toLowerCase()
+        // 精确匹配或以搜索词开头
+        return labelLower === searchLower || labelLower.startsWith(searchLower)
+      })
     : allOptions
 
   React.useEffect(() => {
