@@ -75,24 +75,25 @@ function SearchSelect({
     }
   }, [value, multiple])
 
-  // 搜索筛选：同时支持精确匹配和包含匹配，精确匹配排在前面
+  // 搜索筛选：先尝试精确匹配，如果没有则尝试以搜索词开头，最后尝试包含匹配
   const filteredOptions = search
-    ? allOptions
-        .filter((opt) => opt.label.toLowerCase().includes(search.toLowerCase()))
-        .sort((a, b) => {
-          const searchLower = search.toLowerCase()
-          const aExact = a.label.toLowerCase() === searchLower
-          const bExact = b.label.toLowerCase() === searchLower
-          // 精确匹配排在最前面
-          if (aExact && !bExact) return -1
-          if (!aExact && bExact) return 1
-          // 以搜索词开头的排在其次
-          const aStartsWith = a.label.toLowerCase().startsWith(searchLower)
-          const bStartsWith = b.label.toLowerCase().startsWith(searchLower)
-          if (aStartsWith && !bStartsWith) return -1
-          if (!aStartsWith && bStartsWith) return 1
-          return 0
-        })
+    ? (() => {
+        const searchLower = search.toLowerCase()
+        const exactMatches = allOptions.filter((opt) => opt.label.toLowerCase() === searchLower)
+        const startsWithMatches = allOptions.filter((opt) => opt.label.toLowerCase().startsWith(searchLower) && opt.label.toLowerCase() !== searchLower)
+        const containsMatches = allOptions.filter((opt) => opt.label.toLowerCase().includes(searchLower) && !opt.label.toLowerCase().startsWith(searchLower))
+        
+        // 如果有精确匹配，只返回精确匹配
+        if (exactMatches.length > 0) {
+          return exactMatches
+        }
+        // 如果有以搜索词开头的匹配，只返回这些
+        if (startsWithMatches.length > 0) {
+          return startsWithMatches
+        }
+        // 否则返回包含匹配
+        return containsMatches
+      })()
     : allOptions
 
   React.useEffect(() => {
