@@ -1377,44 +1377,43 @@ export default function AdminPage() {
                         </SearchSelectItem>
                       ))}
                     </SearchSelect>
-                    {/* 主账号可见的操作按钮 */}
-                    {isMainAccount && (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleExportClick}
-                          disabled={selectedFiles.size === 0}
-                          className="gap-2"
-                        >
-                          <Download className="w-4 h-4" />
-                          导出上传记录 ({selectedFiles.size})
-                        </Button>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={handleDownloadClick}
-                          disabled={downloading}
-                          className="gap-2"
-                        >
-                          {downloading ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <FolderDown className="w-4 h-4" />
-                          )}
-                          {downloading ? "下载中..." : "批量下载"}
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={batchDeleteFiles}
-                          disabled={selectedFiles.size === 0 || downloading}
-                          className="gap-2"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          批量删除 {selectedFiles.size > 0 && `(${selectedFiles.size})`}
+                    {/* 导出和下载按钮 - 主账号和子账号都可用 */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportClick}
+                      disabled={selectedFiles.size === 0}
+                      className="gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      导出上传记录 ({selectedFiles.size})
                     </Button>
-                      </>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleDownloadClick}
+                      disabled={downloading}
+                      className="gap-2"
+                    >
+                      {downloading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <FolderDown className="w-4 h-4" />
+                      )}
+                      {downloading ? "下载中..." : "批量下载"}
+                    </Button>
+                    {/* 批量删除 - 仅主账号可用 */}
+                    {isMainAccount && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={batchDeleteFiles}
+                        disabled={selectedFiles.size === 0 || downloading}
+                        className="gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        批量删除 {selectedFiles.size > 0 && `(${selectedFiles.size})`}
+                      </Button>
                     )}
                   </div>
                 </div>
