@@ -75,13 +75,24 @@ function SearchSelect({
     }
   }, [value, multiple])
 
+  // 搜索筛选：同时支持精确匹配和包含匹配，精确匹配排在前面
   const filteredOptions = search
-    ? allOptions.filter((opt) => {
-        const labelLower = opt.label.toLowerCase()
-        const searchLower = search.toLowerCase()
-        // 精确匹配或以搜索词开头
-        return labelLower === searchLower || labelLower.startsWith(searchLower)
-      })
+    ? allOptions
+        .filter((opt) => opt.label.toLowerCase().includes(search.toLowerCase()))
+        .sort((a, b) => {
+          const searchLower = search.toLowerCase()
+          const aExact = a.label.toLowerCase() === searchLower
+          const bExact = b.label.toLowerCase() === searchLower
+          // 精确匹配排在最前面
+          if (aExact && !bExact) return -1
+          if (!aExact && bExact) return 1
+          // 以搜索词开头的排在其次
+          const aStartsWith = a.label.toLowerCase().startsWith(searchLower)
+          const bStartsWith = b.label.toLowerCase().startsWith(searchLower)
+          if (aStartsWith && !bStartsWith) return -1
+          if (!aStartsWith && bStartsWith) return 1
+          return 0
+        })
     : allOptions
 
   React.useEffect(() => {
