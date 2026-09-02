@@ -198,7 +198,7 @@ export default function AdminPage() {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<any>(null);
-  const [accountForm, setAccountForm] = useState({ username: "", password: "", display_name: "" });
+  const [accountForm, setAccountForm] = useState({ username: "", password: "", display_name: "", role: "sub" });
   const [accountSaving, setAccountSaving] = useState(false);
   const [deleteAccountId, setDeleteAccountId] = useState<string | null>(null);
   const [accountDeleting, setAccountDeleting] = useState(false);
@@ -207,6 +207,9 @@ export default function AdminPage() {
   const [currentUser, setCurrentUser] = useState<{ id: string; username: string; role: string; display_name: string } | null>(null);
   const isMainAccount = currentUser?.role === "main";
   const isSubAccount = currentUser?.role === "sub";
+  const isSubAdmin = currentUser?.role === "sub_admin";
+  // 子管理员拥有大部分权限（除账号管理外）
+  const hasFullAccess = isMainAccount || isSubAdmin;
 
   // 检查登录状态
   useEffect(() => {
@@ -310,10 +313,11 @@ export default function AdminPage() {
         username: account.username,
         password: "",
         display_name: account.display_name || "",
+        role: account.role || "sub",
       });
     } else {
       setEditingAccount(null);
-      setAccountForm({ username: "", password: "", display_name: "" });
+      setAccountForm({ username: "", password: "", display_name: "", role: "sub" });
     }
     setAccountModalOpen(true);
   };
@@ -334,7 +338,7 @@ export default function AdminPage() {
       const method = editingAccount ? "PUT" : "POST";
       const body = editingAccount
         ? { id: editingAccount.id, display_name: accountForm.display_name, password: accountForm.password || undefined }
-        : { username: accountForm.username, password: accountForm.password, display_name: accountForm.display_name, role: "sub" };
+        : { username: accountForm.username, password: accountForm.password, display_name: accountForm.display_name, role: accountForm.role };
 
       const res = await fetch(url, {
         method,
@@ -1249,7 +1253,7 @@ export default function AdminPage() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${isMainAccount ? "grid-cols-6" : "grid-cols-2"} mb-6`}>
+          <TabsList className={`grid w-full ${hasFullAccess ? "grid-cols-5" : isSubAccount ? "grid-cols-2" : "grid-cols-2"} mb-6`}>
             <TabsTrigger value="files" className="gap-2">
               <File className="w-4 h-4" />
               上传记录
@@ -1259,7 +1263,7 @@ export default function AdminPage() {
               <File className="w-4 h-4" />
               收集进度
             </TabsTrigger>
-            {isMainAccount && (
+            {hasFullAccess && (
               <>
                 <TabsTrigger value="rules" className="gap-2">
                   <FileText className="w-4 h-4" />
@@ -1275,11 +1279,13 @@ export default function AdminPage() {
                   自定义变量
                   {variables.length > 0 && <Badge variant="secondary" className="ml-1">{variables.length}</Badge>}
                 </TabsTrigger>
-                <TabsTrigger value="accounts" className="gap-2">
-                  <Settings className="w-4 h-4" />
-                  账号管理
-                </TabsTrigger>
               </>
+            )}
+            {isMainAccount && (
+              <TabsTrigger value="accounts" className="gap-2">
+                <Settings className="w-4 h-4" />
+                账号管理
+              </TabsTrigger>
             )}
           </TabsList>
 
@@ -1505,7 +1511,7 @@ export default function AdminPage() {
                             <TableCell className="text-slate-500 text-sm">{formatDate(file.created_at)}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
-                                {isMainAccount && (
+                                {(isMainAccount || isSubAdmin) && (
                                   <>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -2301,9 +2307,9 @@ export default function AdminPage() {
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
-                        <DialogTitle>{editingAccount ? "编辑账号" : "新增子账号"}</DialogTitle>
+                        <DialogTitle>{editingAccount ? "编辑账号" : "新增账号"}</DialogTitle>
                         <DialogDescription>
-                          {editingAccount ? "修改账号信息" : "创建一个新的子账号，子账号仅能查看上传记录和收集进度"}
+                          {editingAccount ? "修改账号信息" : "创建一个新的账号，可选择子账号或子管理员角色"}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
@@ -2336,6 +2342,25 @@ export default function AdminPage() {
                             placeholder="请输入显示名称"
                           />
                         </div>
+                        {!editingAccount && (
+                          <div className="space-y-2">
+                            <Label htmlFor="accountRole">角色</Label>
+                            <select
+                              id="accountRole"
+                              value={accountForm.role}
+                              onChange={(e) => setAccountForm({ ...accountForm, role: e.target.value })}
+                              className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+                            >
+                              <option value="sub">子账号（仅查看上传记录和收集进度）</option>
+                              <option value="sub_admin">子管理员（拥有大部分管理权限）</option>
+                            </select>
+                            <p className="text-xs text-slate-500 mt-1">
+                              {accountForm.role === "sub" 
+                                ? "子账号只能查看上传记录和收集进度，无法管理规则、店铺、变量等"
+                                : "子管理员可管理命名规则、店铺列表、自定义变量、上传记录、收集进度，但不能管理账号"}
+                            </p>
+                          </div>
+                        )}
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setAccountModalOpen(false)}>取消</Button>
@@ -2369,8 +2394,8 @@ export default function AdminPage() {
                           <TableCell className="font-medium">{account.username}</TableCell>
                           <TableCell>{account.display_name || "-"}</TableCell>
                           <TableCell>
-                            <Badge variant={account.role === "main" ? "default" : "secondary"}>
-                              {account.role === "main" ? "主账号" : "子账号"}
+                            <Badge variant={account.role === "main" ? "default" : account.role === "sub_admin" ? "outline" : "secondary"}>
+                              {account.role === "main" ? "主账号" : account.role === "sub_admin" ? "子管理员" : "子账号"}
                             </Badge>
                           </TableCell>
                           <TableCell>

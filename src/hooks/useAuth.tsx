@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 interface UserInfo {
   id: string
   username: string
-  role: "main" | "sub"
+  role: "main" | "sub" | "sub_admin"
   display_name: string
   is_active: boolean
 }
@@ -14,12 +14,13 @@ interface UserInfo {
 interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
-  role: "main" | "sub" | null
+  role: "main" | "sub" | "sub_admin" | null
   user: UserInfo | null
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
   logout: () => void
   isMainAccount: boolean
   isSubAccount: boolean
+  isSubAdmin: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -32,7 +33,7 @@ const AUTH_TIMEOUT = 7 * 24 * 60 * 60 * 1000 // 7天
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [role, setRole] = useState<"main" | "sub" | null>(null)
+  const [role, setRole] = useState<"main" | "sub" | "sub_admin" | null>(null)
   const [user, setUser] = useState<UserInfo | null>(null)
   const router = useRouter()
 
@@ -138,6 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         isMainAccount: role === "main",
         isSubAccount: role === "sub",
+        isSubAdmin: role === "sub_admin",
       }}
     >
       {children}
