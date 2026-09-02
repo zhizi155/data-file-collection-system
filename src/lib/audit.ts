@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/storage/database/supabase-client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // 审计事件类型
 export type AuditEventType =
@@ -15,6 +16,7 @@ export type AuditEventType =
   | 'file.export'          // 导出文件
   | 'file.delete'          // 删除文件（软删除）
   | 'file.restore'         // 恢复文件
+  | 'file.update'          // 修正文件元数据
   | 'file.permanent_delete' // 永久删除
   | 'rule.create'          // 创建规则
   | 'rule.update'          // 更新规则
@@ -176,7 +178,7 @@ export async function logFileDelete(
  * 简化的审计日志记录函数
  */
 export async function logAudit(
-  supabase: any,
+  supabase: SupabaseClient,
   entry: {
     eventType: AuditEventType;
     userId?: string;
@@ -185,7 +187,7 @@ export async function logAudit(
     userAgent?: string;
     targetType?: string;
     targetId?: string;
-    details?: Record<string, any>;
+    details?: Record<string, unknown>;
     result: 'success' | 'failure';
     errorMessage?: string;
   }

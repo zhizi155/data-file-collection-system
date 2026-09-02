@@ -1,12 +1,25 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
-import { Upload, File, X, CheckCircle, AlertCircle, Link, ShoppingBag, FileType } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  AlertCircle,
+  CheckCircle2,
+  File as FileIcon,
+  FileType,
+  PauseCircle,
+  RefreshCw,
+  ShoppingBag,
+  Upload,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchSelect, SearchSelectItem } from "@/components/ui/search-select";
+import type { UploadPolicy } from "@/lib/upload-policy";
 
 interface Shop {
   id: string;
@@ -15,503 +28,445 @@ interface Shop {
   platform: string;
   export_type: string | null;
   manager: string | null;
-  is_active: boolean;
+}
+
+interface DuplicateInfo {
+  id: string;
+  name: string;
+  version: number;
+  createdAt: string;
 }
 
 interface UploadResult {
-  success: boolean;
-  originalName?: string;
-  newName?: string;
-  fileUrl?: string;
-  fileSize?: number;
-  message?: string;
-  data?: any[];
+  id: string;
+  originalName: string;
+  newName: string;
+  fileUrl: string;
+  fileSize: number;
+  version: number;
 }
 
-// 大文件阈值（使用分片上传的文件大小阈值）
-// 文件超过此大小将使用分片上传（单片4MB）
-// 注意：实际限制包括请求体+表单数据，因此设置12MB留有余量
-const LARGE_FILE_THRESHOLD = 12 * 1024 * 1024; // 12MB
+type UploadStatus = "ready" | "checking" | "duplicate" | "uploading" | "confirming" | "success" | "error" | "cancelled";
 
-// 推荐的压缩工具
-const COMPRESSION_TIPS = "建议将文件压缩后再上传。可使用 7-Zip、WinRAR 等工具压缩，或使用 ZIP 格式打包。";
+interface UploadItem {
+  id: string;
+  idempotencyKey: string;
+  file: File;
+  status: UploadStatus;
+  progress: number;
+  error?: string;
+  duplicate?: DuplicateInfo;
+  result?: UploadResult;
+}
+
+interface PresignedPart {
+  partNumber: number;
+  uploadUrl: string;
+}
+
+interface PresignResponse {
+  success: boolean;
+  uploadMode: "single" | "multipart";
+  uploadUrl?: string;
+  uploadId?: string;
+  objectKey: string;
+  newFileName: string;
+  partSize?: number;
+  expiresAt: string;
+  parts?: PresignedPart[];
+  error?: string;
+}
+
+interface ResumeState {
+  presign: PresignResponse;
+  completedParts: Array<{ partNumber: number; etag: string }>;
+}
+
+const DEFAULT_POLICY: UploadPolicy = {
+  allowedMimeTypes: [],
+  maxFileSize: 100 * 1024 * 1024,
+  maxBatchSize: 50,
+  largeFileThreshold: 12 * 1024 * 1024,
+  multipartPartSize: 8 * 1024 * 1024,
+};
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function statusLabel(status: UploadStatus): string {
+  return {
+    ready: "等待上传",
+    checking: "正在预检",
+    duplicate: "等待确认新版本",
+    uploading: "正在上传",
+    confirming: "正在校验并登记",
+    success: "上传成功",
+    error: "上传失败",
+    cancelled: "已取消",
+  }[status];
+}
+
+function requestWithProgress(
+  url: string,
+  data: Blob,
+  contentType: string,
+  onProgress: (loaded: number, total: number) => void,
+  register: (xhr: XMLHttpRequest) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    register(xhr);
+    xhr.open("PUT", url);
+    if (contentType) xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (event) => onProgress(event.loaded, event.total || data.size);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.getResponseHeader("ETag") || xhr.getResponseHeader("etag") || "");
+      } else {
+        reject(new Error(`对象存储返回 ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("网络连接中断"));
+    xhr.onabort = () => reject(new DOMException("上传已取消", "AbortError"));
+    xhr.send(data);
+  });
+}
+
+async function withRetry<T>(operation: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      if (attempt < attempts) await new Promise((resolve) => window.setTimeout(resolve, 500 * 2 ** (attempt - 1)));
+    }
+  }
+  throw lastError;
+}
 
 export default function UploadPage() {
-  const [dragActive, setDragActive] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [result, setResult] = useState<UploadResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [shops, setShops] = useState<Shop[]>([]);
-  const [selectedShop, setSelectedShop] = useState<string>("");
-  const [selectedExportType, setSelectedExportType] = useState<string>("");
-  const [shopLoading, setShopLoading] = useState(true);
-  const [largeFileWarning, setLargeFileWarning] = useState<string | null>(null);
-
-  // 加载店铺列表
-  const loadShops = useCallback(async () => {
-    setShopLoading(true);
-    try {
-      const res = await fetch("/api/shops?active=true");
-      const data = await res.json();
-      if (data.success) setShops(data.data);
-    } catch (err) {
-      console.error("加载店铺失败:", err);
-    } finally {
-      setShopLoading(false);
-    }
-  }, []);
+  const [selectedShop, setSelectedShop] = useState("");
+  const [selectedExportType, setSelectedExportType] = useState("");
+  const [items, setItems] = useState<UploadItem[]>([]);
+  const [policy, setPolicy] = useState<UploadPolicy>(DEFAULT_POLICY);
+  const [dragActive, setDragActive] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const activeRequests = useRef(new Map<string, Set<XMLHttpRequest>>());
 
   useEffect(() => {
-    loadShops();
-  }, [loadShops]);
-
-  // 根据选中的店铺获取导出类型选项
-  const exportTypeOptions = useMemo(() => {
-    if (!selectedShop) return [];
-    const selectedShopData = shops.find((s) => s.id === selectedShop);
-    if (!selectedShopData?.export_type) return [];
-    return selectedShopData.export_type.split(",").map((t) => t.trim()).filter(Boolean);
-  }, [selectedShop, shops]);
-
-  // 当店铺变化时，清空导出类型选择
-  useEffect(() => {
-    setSelectedExportType("");
-  }, [selectedShop]);
-
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
+    Promise.all([
+      fetch("/api/shops?active=true").then((response) => response.json()),
+      fetch("/api/upload/config").then((response) => response.json()),
+    ]).then(([shopData, configData]) => {
+      if (shopData.success) setShops(shopData.data);
+      if (configData.success) setPolicy(configData.data);
+    }).catch(() => setPageError("加载上传配置失败，请刷新页面重试"));
   }, []);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragActive(false);
-      setError(null);
-      setResult(null);
-      setLargeFileWarning(null);
-      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-        const selectedFile = e.dataTransfer.files[0];
-        setFile(selectedFile);
-        
-        // 检查文件大小
-        if (selectedFile.size > LARGE_FILE_THRESHOLD) {
-          setLargeFileWarning(`文件大小为 ${formatFileSize(selectedFile.size)}，超过推荐大小。${COMPRESSION_TIPS}`);
-        }
-      }
-    },
-    []
-  );
+  const currentShop = shops.find((shop) => shop.id === selectedShop);
+  const exportTypes = useMemo(() => String(currentShop?.export_type || "")
+    .split(",").map((item) => item.trim()).filter(Boolean), [currentShop]);
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setError(null);
-    setResult(null);
-    setLargeFileWarning(null);
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile);
-      
-      // 检查文件大小
-      if (selectedFile.size > LARGE_FILE_THRESHOLD) {
-        setLargeFileWarning(`文件大小为 ${formatFileSize(selectedFile.size)}，超过推荐大小。${COMPRESSION_TIPS}`);
-      }
-    }
+  useEffect(() => setSelectedExportType(""), [selectedShop]);
+
+  const updateItem = useCallback((id: string, update: Partial<UploadItem>) => {
+    setItems((current) => current.map((item) => item.id === id ? { ...item, ...update } : item));
   }, []);
 
-  const handleUpload = async () => {
-    if (!file || !selectedShop) return;
-    // 如果店铺有导出类型，则必须选择
-    if (exportTypeOptions.length > 0 && !selectedExportType) return;
-
-    setUploading(true);
-    setError(null);
-    setResult(null);
-    setUploadProgress(0);
-
-    try {
-      const isLargeFile = file.size > LARGE_FILE_THRESHOLD;
-      
-      if (isLargeFile) {
-        // 大文件：使用分片上传
-        await uploadLargeFile();
-      } else {
-        // 普通文件：直接上传
-        await uploadNormalFile();
+  const addFiles = useCallback((files: File[]) => {
+    setPageError(null);
+    setItems((current) => {
+      const remaining = Math.max(0, policy.maxBatchSize - current.length);
+      const accepted = files.slice(0, remaining);
+      if (accepted.length < files.length) {
+        window.setTimeout(() => setPageError(`单批最多 ${policy.maxBatchSize} 个文件`), 0);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "上传失败");
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
-      // 上传完成后清空文件选择状态，避免按钮被禁用
-      if (!error) {
-        setFile(null);
-        setSelectedExportType("");
-      }
-    }
-  };
-
-  // 普通文件上传
-  const uploadNormalFile = async () => {
-    if (!file || !selectedShop) return;
-    
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("shopId", selectedShop);
-    if (selectedExportType) {
-      formData.append("exportType", selectedExportType);
-    }
-
-    const res = await fetch("/api/upload", { method: "POST", body: formData });
-
-    // 检查Content-Type是否为JSON
-    const contentType = res.headers.get("content-type");
-    if (contentType && contentType.includes("application/json")) {
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setError(data.error || "上传失败");
-      } else {
-        setResult(data);
-      }
-    } else {
-      // 非JSON响应（可能是代理返回的错误）
-      const text = await res.text();
-      setError(text || "上传失败");
-    }
-  };
-
-  // 大文件分片上传 - 使用小分片通过网关
-  const uploadLargeFile = async () => {
-    if (!file || !selectedShop) return;
-    
-    // 使用4MB分片
-    const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB per chunk
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-    const shopId = selectedShop;
-
-    // 1. 获取对象key
-    setUploadProgress(5);
-    const presignRes = await fetch("/api/upload/presign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName: file.name,
-        fileSize: file.size,
-        shopId: shopId,
-        exportType: selectedExportType || undefined,
-        contentType: file.type || "application/octet-stream",
-      }),
+      return [...current, ...accepted.map((file) => ({
+        id: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
+        file,
+        status: "ready" as const,
+        progress: 0,
+      }))];
     });
+  }, [policy.maxBatchSize]);
 
-    const presignData = await presignRes.json();
-    if (!presignRes.ok || !presignData.success) {
-      throw new Error(presignData.error || "获取上传链接失败");
+  const resumeKey = (item: UploadItem) => [
+    "finance-upload-v2",
+    selectedShop,
+    selectedExportType,
+    item.file.name,
+    item.file.size,
+    item.file.lastModified,
+  ].join(":");
+
+  const registerRequest = (itemId: string, xhr: XMLHttpRequest) => {
+    const requests = activeRequests.current.get(itemId) ?? new Set<XMLHttpRequest>();
+    requests.add(xhr);
+    activeRequests.current.set(itemId, requests);
+  };
+
+  const cancelUpload = (itemId: string) => {
+    activeRequests.current.get(itemId)?.forEach((xhr) => xhr.abort());
+    activeRequests.current.delete(itemId);
+    updateItem(itemId, { status: "cancelled", error: undefined });
+  };
+
+  const uploadSingle = async (item: UploadItem, presign: PresignResponse) => {
+    if (!presign.uploadUrl) throw new Error("服务器未返回上传地址");
+    await withRetry(() => requestWithProgress(
+      presign.uploadUrl!,
+      item.file,
+      item.file.type || "application/octet-stream",
+      (loaded, total) => updateItem(item.id, { progress: Math.round(5 + (loaded / total) * 85) }),
+      (xhr) => registerRequest(item.id, xhr),
+    ));
+    return [] as Array<{ partNumber: number; etag: string }>;
+  };
+
+  const uploadMultipart = async (item: UploadItem, presign: PresignResponse, restored: ResumeState | null) => {
+    if (!presign.parts || !presign.partSize) throw new Error("服务器未返回分片信息");
+    const completed = new Map((restored?.completedParts ?? []).map((part) => [part.partNumber, part.etag]));
+    const loadedByPart = new Map<number, number>();
+    const pending = presign.parts.filter((part) => !completed.has(part.partNumber));
+    let cursor = 0;
+
+    const publishProgress = () => {
+      const completedBytes = [...completed.keys()].reduce((sum, partNumber) => {
+        const start = (partNumber - 1) * presign.partSize!;
+        return sum + Math.min(presign.partSize!, item.file.size - start);
+      }, 0);
+      const activeBytes = [...loadedByPart.values()].reduce((sum, value) => sum + value, 0);
+      updateItem(item.id, { progress: Math.min(90, Math.round(5 + ((completedBytes + activeBytes) / item.file.size) * 85)) });
+    };
+
+    const worker = async () => {
+      while (cursor < pending.length) {
+        const part = pending[cursor++];
+        const start = (part.partNumber - 1) * presign.partSize!;
+        const blob = item.file.slice(start, Math.min(start + presign.partSize!, item.file.size));
+        const etag = await withRetry(() => requestWithProgress(
+          part.uploadUrl,
+          blob,
+          "",
+          (loaded) => { loadedByPart.set(part.partNumber, loaded); publishProgress(); },
+          (xhr) => registerRequest(item.id, xhr),
+        ));
+        if (!etag) throw new Error("对象存储未暴露 ETag，请检查存储 CORS 配置");
+        loadedByPart.delete(part.partNumber);
+        completed.set(part.partNumber, etag);
+        localStorage.setItem(resumeKey(item), JSON.stringify({
+          presign,
+          completedParts: [...completed].map(([partNumber, value]) => ({ partNumber, etag: value })),
+        } satisfies ResumeState));
+        publishProgress();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, pending.length || 1) }, worker));
+    return [...completed].map(([partNumber, etag]) => ({ partNumber, etag }));
+  };
+
+  const checksumFor = async (file: File): Promise<string | undefined> => {
+    if (file.size > 32 * 1024 * 1024) return undefined;
+    const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  };
+
+  const startUpload = async (item: UploadItem, versionUpgradeConfirmed = false) => {
+    if (!selectedShop || (exportTypes.length > 0 && !selectedExportType)) {
+      setPageError("请先选择店铺和文件保存类型");
+      return;
     }
-
-    const { objectKey, newName } = presignData;
-    console.log(`开始分片上传: ${file.name}, 大小: ${file.size}, 分片数: ${totalChunks}, 命名: ${newName}`);
-
-    // 2. 分片上传
-    let actualFileKey = objectKey; // 用于存储 SDK 返回的实际 key
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, file.size);
-      const chunk = file.slice(start, end);
-
-      const chunkFormData = new FormData();
-      chunkFormData.append("file", chunk);
-      chunkFormData.append("chunkIndex", i.toString());
-      chunkFormData.append("totalChunks", totalChunks.toString());
-      chunkFormData.append("objectKey", objectKey);
-      chunkFormData.append("fileName", file.name);
-      chunkFormData.append("fileSize", file.size.toString());
-
-      const chunkRes = await fetch("/api/upload/chunk", {
+    updateItem(item.id, { status: "checking", progress: 1, error: undefined });
+    try {
+      const preflightResponse = await fetch("/api/upload/preflight", {
         method: "POST",
-        body: chunkFormData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: item.file.name,
+          fileSize: item.file.size,
+          contentType: item.file.type || "application/octet-stream",
+          shopId: selectedShop,
+          exportType: selectedExportType || undefined,
+        }),
       });
-
-      const chunkData = await chunkRes.json().catch(() => ({}));
-
-      if (!chunkRes.ok) {
-        throw new Error(chunkData.error || `分片 ${i + 1} 上传失败`);
+      const preflight = await preflightResponse.json();
+      if (!preflightResponse.ok || !preflight.success) {
+        throw new Error(preflight.errors?.join("；") || preflight.error || "上传预检失败");
+      }
+      if (preflight.duplicate && !versionUpgradeConfirmed) {
+        updateItem(item.id, { status: "duplicate", progress: 0, duplicate: preflight.duplicate });
+        return;
       }
 
-      // 最后一个分片会返回 SDK 实际返回的 fileKey
-      if (chunkData.fileKey) {
-        actualFileKey = chunkData.fileKey;
-        console.log(`获取到实际存储 key: ${actualFileKey}`);
+      let restored: ResumeState | null = null;
+      const saved = localStorage.getItem(resumeKey(item));
+      if (saved) {
+        try {
+          const candidate = JSON.parse(saved) as ResumeState;
+          if (new Date(candidate.presign.expiresAt).getTime() > Date.now() + 60_000) restored = candidate;
+        } catch { localStorage.removeItem(resumeKey(item)); }
       }
 
-      const progress = Math.round(((i + 1) / totalChunks) * 80) + 10;
-      setUploadProgress(progress);
-      console.log(`分片 ${i + 1}/${totalChunks} 完成`);
+      let presign: PresignResponse;
+      if (restored) {
+        presign = restored.presign;
+      } else {
+        presign = await fetch("/api/upload/presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName: item.file.name,
+            fileSize: item.file.size,
+            contentType: item.file.type || "application/octet-stream",
+            shopId: selectedShop,
+            exportType: selectedExportType || undefined,
+          }),
+        }).then((response) => response.json() as Promise<PresignResponse>);
+      }
+      if (!presign.success) throw new Error(presign.error || "获取上传地址失败");
+
+      updateItem(item.id, { status: "uploading", progress: 5 });
+      const parts = presign.uploadMode === "multipart"
+        ? await uploadMultipart(item, presign, restored)
+        : await uploadSingle(item, presign);
+      updateItem(item.id, { status: "confirming", progress: 94 });
+
+      const confirmResponse = await fetch("/api/upload/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          objectKey: presign.objectKey,
+          uploadId: presign.uploadId,
+          parts,
+          originalName: item.file.name,
+          displayName: presign.newFileName,
+          fileSize: item.file.size,
+          mimeType: item.file.type || "application/octet-stream",
+          shopId: selectedShop,
+          exportType: selectedExportType || undefined,
+          checksum: await checksumFor(item.file),
+          idempotencyKey: item.idempotencyKey,
+          versionUpgradeConfirmed,
+        }),
+      });
+      const result = await confirmResponse.json();
+      if (!confirmResponse.ok || !result.success) throw new Error(result.error || "上传确认失败");
+      localStorage.removeItem(resumeKey(item));
+      activeRequests.current.delete(item.id);
+      updateItem(item.id, { status: "success", progress: 100, duplicate: undefined, result });
+    } catch (error) {
+      activeRequests.current.delete(item.id);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        updateItem(item.id, { status: "cancelled", error: undefined });
+      } else {
+        updateItem(item.id, { status: "error", error: error instanceof Error ? error.message : "上传失败" });
+      }
     }
-
-    // 3. 确认上传完成，使用 SDK 返回的实际 fileKey
-    setUploadProgress(95);
-    const confirmRes = await fetch("/api/upload/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        objectKey: actualFileKey, // 使用 SDK 返回的实际 key
-        originalName: file.name,
-        displayName: newName, // 命名规则生成的文件名
-        fileSize: file.size,
-        shopId: shopId,
-        exportType: selectedExportType || undefined,
-      }),
-    });
-
-    const confirmData = await confirmRes.json();
-    if (!confirmRes.ok || !confirmData.success) {
-      throw new Error(confirmData.error || "确认上传失败");
-    }
-
-    setResult(confirmData);
-    setUploadProgress(100);
   };
 
-  const handleReset = () => {
-    setFile(null);
-    setResult(null);
-    setError(null);
-    setSelectedExportType("");
+  const startAll = async () => {
+    const pending = items.filter((item) => ["ready", "error", "cancelled"].includes(item.status));
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < pending.length) await startUpload(pending[cursor++]);
+    };
+    await Promise.all(Array.from({ length: Math.min(2, pending.length || 1) }, worker));
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  };
-
-  const currentShop = selectedShop ? shops.find((s) => s.id === selectedShop) : null;
-  const hasExportType = exportTypeOptions.length > 0;
+  const busy = items.some((item) => ["checking", "uploading", "confirming"].includes(item.status));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-8">
-      <div className="max-w-2xl mx-auto">
-        {/* 头部 */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 mb-2">文件收集系统</h1>
-          <p className="text-slate-600 dark:text-slate-400">拖拽或选择文件进行上传</p>
-        </div>
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
+      <div className="mx-auto max-w-3xl space-y-6">
+        <header className="text-center">
+          <h1 className="text-3xl font-bold text-slate-900">财务文件收集系统</h1>
+          <p className="mt-2 text-slate-600">批量上传、断点续传和文件版本管理</p>
+        </header>
 
-        <Card className="shadow-lg">
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="w-5 h-5" />
-              上传文件
-            </CardTitle>
-            <CardDescription>支持任意格式的文件上传</CardDescription>
+            <CardTitle className="flex items-center gap-2"><Upload className="size-5" />上传文件</CardTitle>
+            <CardDescription>
+              单文件最大 {formatFileSize(policy.maxFileSize)}，单批最多 {policy.maxBatchSize} 个；
+              超过 {formatFileSize(policy.largeFileThreshold)} 自动使用对象存储多段直传。
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {/* 店铺选择 */}
-            <div className="space-y-2">
-              <Label htmlFor="shop" className="flex items-center gap-2">
-                <ShoppingBag className="w-4 h-4" />
-                店铺 <span className="text-red-500">*</span>
-              </Label>
-              <SearchSelect
-                value={selectedShop}
-                onValueChange={(val) => setSelectedShop(Array.isArray(val) ? val[0] || "" : val)}
-                placeholder={shopLoading ? "加载中..." : "请选择店铺"}
-                disabled={shopLoading}
-                searchPlaceholder="搜索店铺名称..."
-                maxDisplayItems={8}
-                className="w-full"
-              >
-                {shops.map((shop) => (
-                  <SearchSelectItem key={shop.id} value={shop.id}>
-                    {shop.name}
-                  </SearchSelectItem>
-                ))}
-              </SearchSelect>
-              {selectedShop && currentShop && (
-                <p className="text-xs text-slate-500">
-                  已选择: {currentShop.name}({currentShop.site}-{currentShop.platform}){currentShop.manager ? ` - 负责人:${currentShop.manager}` : ""}
-                </p>
-              )}
-              {shops.length === 0 && !shopLoading && (
-                <p className="text-sm text-amber-600">暂无可用店铺，请先在管理后台添加店铺</p>
-              )}
+          <CardContent className="space-y-5">
+            {pageError && <div role="alert" className="flex gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="size-4 shrink-0" />{pageError}</div>}
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2"><ShoppingBag className="size-4" />店铺</Label>
+                <SearchSelect value={selectedShop} onValueChange={(value) => setSelectedShop(Array.isArray(value) ? value[0] || "" : value)} placeholder="请选择店铺" disabled={busy}>
+                  {shops.map((shop) => <SearchSelectItem key={shop.id} value={shop.id}>{shop.name}</SearchSelectItem>)}
+                </SearchSelect>
+              </div>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2"><FileType className="size-4" />文件保存类型</Label>
+                <Select value={selectedExportType} onValueChange={setSelectedExportType} disabled={!selectedShop || exportTypes.length === 0 || busy}>
+                  <SelectTrigger aria-label="文件保存类型"><SelectValue placeholder={exportTypes.length ? "请选择类型" : "该店铺无需选择"} /></SelectTrigger>
+                  <SelectContent>{exportTypes.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* 导出类型选择（仅当店铺有设置时显示） */}
-            {hasExportType && (
-              <div className="space-y-2">
-                <Label htmlFor="exportType" className="flex items-center gap-2">
-                  <FileType className="w-4 h-4" />
-                  文件保存类型 <span className="text-red-500">*</span>
-                </Label>
-                <Select value={selectedExportType} onValueChange={setSelectedExportType}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="请选择文件保存类型" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {exportTypeOptions.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-slate-500">
-                  已选店铺的导出类型：{currentShop?.export_type || "无"}
-                </p>
-              </div>
-            )}
+            <div
+              className={`relative rounded-lg border-2 border-dashed p-7 text-center transition ${dragActive ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-white"}`}
+              onDragEnter={(event) => { event.preventDefault(); setDragActive(true); }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(event) => { event.preventDefault(); setDragActive(false); addFiles([...event.dataTransfer.files]); }}
+            >
+              <input
+                className="absolute inset-0 size-full cursor-pointer opacity-0"
+                type="file"
+                multiple
+                aria-label="选择要上传的财务文件"
+                disabled={busy || items.length >= policy.maxBatchSize}
+                onChange={(event) => { addFiles([...(event.target.files ?? [])]); event.target.value = ""; }}
+              />
+              <Upload className="mx-auto size-10 text-slate-400" />
+              <p className="mt-3 font-medium text-slate-700">拖拽文件到这里，或点击选择多个文件</p>
+              <p className="mt-1 text-xs text-slate-500">上传前会校验大小、类型、店铺配置和重复版本</p>
+            </div>
 
-            {/* 拖拽上传区域 */}
-            {!result && (
-              <div
-                className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive
-                    ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
-                    : "border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500"
-                }`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <input
-                  type="file"
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  onChange={handleFileChange}
-                  accept="*/*"
-                />
-                <Upload className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                <p className="text-slate-600 dark:text-slate-400 mb-2">
-                  拖拽文件到此处，或<span className="text-blue-500">点击选择</span>
-                </p>
-                <p className="text-xs text-slate-400">支持任意文件类型</p>
-              </div>
-            )}
-
-            {/* 已选择文件 */}
-            {file && !result && (
-              <div className="flex flex-col gap-2 p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <File className="w-8 h-8 text-slate-500" />
-                    <div>
-                      <p className="font-medium text-slate-800 dark:text-slate-200">{file.name}</p>
-                      <p className="text-sm text-slate-500">{formatFileSize(file.size)}</p>
-                    </div>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={handleReset} className="text-slate-500 hover:text-slate-700">
-                    <X className="w-5 h-5" />
-                  </Button>
-                </div>
-                
-                {/* 大文件警告 */}
-                {largeFileWarning && (
-                  <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                      <p className="text-sm text-amber-700 dark:text-amber-300">{largeFileWarning}</p>
-                    </div>
-                  </div>
-                )}
-                
-                {/* 上传进度 */}
-                {uploading && (
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-600 dark:text-slate-400">上传进度</span>
-                      <span className="text-slate-600 dark:text-slate-400">{uploadProgress}%</span>
-                    </div>
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
-                      <div 
-                        className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
-                        style={{ width: `${uploadProgress}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 上传结果 */}
-            {result && (
-              <div className="p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-medium text-green-800 dark:text-green-200">上传成功</p>
-                    <div className="mt-2 space-y-1 text-sm text-green-700 dark:text-green-300">
-                      <p>原始文件名: {result.originalName}</p>
-                      <p>保存文件名: {result.newName}</p>
-                      <p>文件大小: {formatFileSize(result.fileSize || 0)}</p>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => window.open(result.fileUrl, "_blank")} className="gap-2">
-                        <Link className="w-4 h-4" />
-                        查看文件
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={handleReset}>上传新文件</Button>
+            <div className="space-y-3" aria-live="polite">
+              {items.map((item) => (
+                <div key={item.id} className="rounded-lg border bg-white p-4">
+                  <div className="flex items-start gap-3">
+                    <FileIcon className="mt-1 size-6 shrink-0 text-slate-500" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0"><p className="truncate font-medium" title={item.file.name}>{item.file.name}</p><p className="text-xs text-slate-500">{formatFileSize(item.file.size)} · {statusLabel(item.status)}</p></div>
+                        <div className="flex shrink-0 gap-1">
+                          {["uploading", "checking", "confirming"].includes(item.status) && <Button variant="ghost" size="icon" aria-label={`取消 ${item.file.name}`} onClick={() => cancelUpload(item.id)}><PauseCircle className="size-4" /></Button>}
+                          {["ready", "error", "cancelled"].includes(item.status) && <Button variant="ghost" size="icon" aria-label={`重试 ${item.file.name}`} onClick={() => startUpload(item)}><RefreshCw className="size-4" /></Button>}
+                          {!busy && item.status !== "success" && <Button variant="ghost" size="icon" aria-label={`移除 ${item.file.name}`} onClick={() => setItems((current) => current.filter((candidate) => candidate.id !== item.id))}><X className="size-4" /></Button>}
+                        </div>
+                      </div>
+                      {item.progress > 0 && <Progress className="mt-3 h-2" value={item.progress} aria-label={`${item.file.name} 上传进度 ${item.progress}%`} />}
+                      {item.error && <p role="alert" className="mt-2 text-sm text-red-600">{item.error}</p>}
+                      {item.duplicate && <div className="mt-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 md:flex-row md:items-center md:justify-between"><span>已有“{item.duplicate.name}”v{item.duplicate.version}，是否保存为新版本？</span><Button size="sm" onClick={() => startUpload(item, true)}>确认创建 v{item.duplicate.version + 1}</Button></div>}
+                      {item.result && <div className="mt-3 flex items-center justify-between rounded-md bg-green-50 p-3 text-sm text-green-800"><span className="flex items-center gap-2"><CheckCircle2 className="size-4" />已保存为 {item.result.newName}（v{item.result.version}）</span><a className="font-medium underline" href={item.result.fileUrl} target="_blank" rel="noreferrer">查看</a></div>}
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
 
-            {/* 错误信息 */}
-            {error && (
-              <div className="p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-red-800 dark:text-red-200">上传失败</p>
-                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">{error}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 上传按钮 */}
-            {file && (
-              <Button 
-                onClick={handleUpload} 
-                disabled={uploading || !selectedShop || (hasExportType && !selectedExportType) || shopLoading} 
-                className="w-full" 
-                size="lg"
-              >
-                {uploading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="animate-spin">⏳</span>
-                    上传中 {uploadProgress}%
-                  </span>
-                ) : file.size > LARGE_FILE_THRESHOLD ? (
-                  <span className="flex items-center gap-2">
-                    <span>⚠️</span>
-                    上传大文件（可能需要较长时间）
-                  </span>
-                ) : (
-                  "开始上传"
-                )}
-              </Button>
-            )}
+            {items.length > 0 && <div className="flex flex-col gap-2 sm:flex-row"><Button className="flex-1" size="lg" disabled={busy || !selectedShop || (exportTypes.length > 0 && !selectedExportType)} onClick={startAll}>{busy ? "上传处理中…" : "开始上传队列"}</Button><Button variant="outline" disabled={busy} onClick={() => setItems([])}>清空队列</Button></div>}
           </CardContent>
         </Card>
 
-        {/* 底部链接 */}
-        <div className="mt-8 text-center">
-          <a href="/admin/login" className="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300">
-            管理后台
-          </a>
-        </div>
+        <div className="text-center"><Link className="text-sm text-slate-500 hover:text-slate-800" href="/admin/login">进入管理后台</Link></div>
       </div>
-    </div>
+    </main>
   );
 }

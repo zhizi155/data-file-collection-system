@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 import * as XLSX from "xlsx";
 
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, "shops:manage");
+  if (auth.error) return auth.error;
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;

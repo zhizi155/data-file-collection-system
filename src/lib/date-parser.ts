@@ -3,6 +3,8 @@
  * 支持多种中文/数字日期格式
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 // 解析结果
 export interface ParsedPeriod {
   start: string | null; // ISO date string (YYYY-MM-DD)
@@ -212,7 +214,7 @@ export function batchParseDates(filenames: string[]): Map<string, ParsedPeriod> 
  * 回填历史记录的归属期间
  */
 export async function backfillPeriods(
-  supabase: any,
+  supabase: SupabaseClient,
   batchSize: number = 100
 ): Promise<{ processed: number; updated: number; failed: number }> {
   let processed = 0;

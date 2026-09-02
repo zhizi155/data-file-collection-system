@@ -10,6 +10,7 @@
     "start": "bash ./scripts/start.sh",
     "ts-check": "tsc -p tsconfig.json",
     "lint:build": "eslint . --quiet",
+    "test": "tsx --test tests/**/*.test.ts",
     "validate": "pnpm run --parallel '/^(ts-check|lint:build)$/'"
   },
   "dependencies": {

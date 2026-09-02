@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Storage } from "coze-coding-dev-sdk";
+import { requirePermission } from "@/lib/rbac";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -10,6 +11,8 @@ const storage = new S3Storage({
 });
 
 export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, "files:view");
+  if (auth.error) return auth.error;
   try {
     const { searchParams } = new URL(request.url);
     const key = searchParams.get("key");

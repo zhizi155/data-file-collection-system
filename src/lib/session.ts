@@ -25,6 +25,10 @@ export function generateSessionToken(): string {
   return crypto.randomBytes(32).toString('hex')
 }
 
+function hashSessionToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex')
+}
+
 /**
  * 创建会话
  */
@@ -44,7 +48,7 @@ export async function createSession(userId: string, username: string, role: 'mai
   // 存储到数据库
   const supabase = getSupabaseClient()
   await supabase.from('sessions').insert({
-    token,
+    token: hashSessionToken(token),
     user_id: userId,
     data: sessionData,
     expires_at: new Date(sessionData.exp * 1000).toISOString(),
@@ -58,12 +62,24 @@ export async function createSession(userId: string, username: string, role: 'mai
  */
 export async function validateSession(token: string): Promise<SessionData | null> {
   const supabase = getSupabaseClient()
-
-  const { data, error } = await supabase
+  const tokenHash = hashSessionToken(token)
+  let { data, error } = await supabase
     .from('sessions')
     .select('data, expires_at')
-    .eq('token', token)
-    .single()
+    .eq('token', tokenHash)
+    .maybeSingle()
+
+  // 兼容旧版明文 token，并在首次使用时原位升级。
+  if (!data) {
+    const legacy = await supabase
+      .from('sessions')
+      .select('data, expires_at')
+      .eq('token', token)
+      .maybeSingle()
+    data = legacy.data
+    error = legacy.error
+    if (data) await supabase.from('sessions').update({ token: tokenHash }).eq('token', token)
+  }
 
   if (error || !data) {
     return null
@@ -73,7 +89,7 @@ export async function validateSession(token: string): Promise<SessionData | null
   const expiresAt = new Date(data.expires_at).getTime()
   if (Date.now() > expiresAt) {
     // 删除过期会话
-    await supabase.from('sessions').delete().eq('token', token)
+    await supabase.from('sessions').delete().eq('token', tokenHash)
     return null
   }
 
@@ -85,11 +101,12 @@ export async function validateSession(token: string): Promise<SessionData | null
  */
 export async function refreshSession(token: string): Promise<void> {
   const supabase = getSupabaseClient()
+  const tokenHash = hashSessionToken(token)
 
   const { data } = await supabase
     .from('sessions')
     .select('data, expires_at')
-    .eq('token', token)
+    .eq('token', tokenHash)
     .single()
 
   if (!data) return
@@ -111,7 +128,7 @@ export async function refreshSession(token: string): Promise<void> {
         data: sessionData,
         expires_at: new Date(newExp * 1000).toISOString(),
       })
-      .eq('token', token)
+      .eq('token', tokenHash)
   }
 }
 
@@ -120,7 +137,7 @@ export async function refreshSession(token: string): Promise<void> {
  */
 export async function deleteSession(token: string): Promise<void> {
   const supabase = getSupabaseClient()
-  await supabase.from('sessions').delete().eq('token', token)
+  await supabase.from('sessions').delete().in('token', [hashSessionToken(token), token])
 }
 
 /**

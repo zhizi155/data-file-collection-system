@@ -9,6 +9,7 @@ export type Permission =
   | 'files:restore'       // 恢复文件
   | 'files:export'        // 导出文件
   | 'files:view'          // 查看文件
+  | 'files:update'        // 修正文件元数据
   | 'shops:manage'        // 店铺管理
   | 'variables:manage'    // 变量管理
   | 'audit:view'          // 查看审计日志
@@ -22,6 +23,7 @@ const ROLE_PERMISSIONS: Record<'main' | 'sub', Permission[]> = {
     'files:restore',
     'files:export',
     'files:view',
+    'files:update',
     'shops:manage',
     'variables:manage',
     'audit:view',

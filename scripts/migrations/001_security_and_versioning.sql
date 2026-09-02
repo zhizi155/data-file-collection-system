@@ -60,6 +60,7 @@ ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS is_current BOOLEAN DEFAULT T
 ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ;
 ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS uploaded_by VARCHAR(36);
 ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS checksum VARCHAR(64);
+ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100);
 ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
 ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(36);
@@ -67,6 +68,14 @@ ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(36);
 CREATE INDEX IF NOT EXISTS uploaded_files_version_idx ON uploaded_files(version);
 CREATE INDEX IF NOT EXISTS uploaded_files_is_current_idx ON uploaded_files(is_current);
 CREATE INDEX IF NOT EXISTS uploaded_files_is_deleted_idx ON uploaded_files(is_deleted);
+CREATE UNIQUE INDEX IF NOT EXISTS uploaded_files_idempotency_key_idx
+  ON uploaded_files(idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
+-- 只补齐空值，不删除、不覆盖任何历史记录。
+UPDATE uploaded_files SET version = 1 WHERE version IS NULL;
+UPDATE uploaded_files SET is_current = TRUE WHERE is_current IS NULL;
+UPDATE uploaded_files SET is_deleted = FALSE WHERE is_deleted IS NULL;
 
 -- 为 uploaded_files 表添加归属期间字段
 ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS period_start DATE;
@@ -119,4 +128,8 @@ INSERT INTO upload_config (key, value, description) VALUES
   ('max_file_size', '104857600', '单文件最大大小（字节），默认 100MB'),
   ('max_batch_size', '50', '批量上传最大文件数'),
   ('large_file_threshold', '12582912', '大文件阈值（字节），默认 12MB')
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO upload_config (key, value, description) VALUES
+  ('multipart_part_size', '8388608', '对象存储多段上传分片大小（字节），默认 8MB')
 ON CONFLICT (key) DO NOTHING;

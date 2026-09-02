@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { requirePermission } from "@/lib/rbac";
 
 // 获取所有自定义变量
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, "files:view");
+  if (auth.error) return auth.error;
   try {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
@@ -25,6 +28,8 @@ export async function GET() {
 
 // 创建自定义变量
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, "variables:manage");
+  if (auth.error) return auth.error;
   try {
     const body = await request.json();
     const { name, value, description } = body;
@@ -66,6 +71,8 @@ export async function POST(request: NextRequest) {
 
 // 更新自定义变量
 export async function PUT(request: NextRequest) {
+  const auth = await requirePermission(request, "variables:manage");
+  if (auth.error) return auth.error;
   try {
     const body = await request.json();
     const { id, name, value, description, is_active } = body;
@@ -110,6 +117,8 @@ export async function PUT(request: NextRequest) {
 
 // 删除自定义变量
 export async function DELETE(request: NextRequest) {
+  const auth = await requirePermission(request, "variables:manage");
+  if (auth.error) return auth.error;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");

@@ -146,6 +146,53 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
+// 手动修正文件归属期间
+export async function PATCH(request: NextRequest) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (!hasPermission(user, 'files:update')) {
+    return NextResponse.json({ error: "无修正权限" }, { status: 403 });
+  }
+
+  try {
+    const body = await request.json() as {
+      ids?: string[];
+      periodStart?: string | null;
+      periodEnd?: string | null;
+      periodLabel?: string | null;
+    };
+    const ids = [...new Set((body.ids ?? []).filter(Boolean))];
+    if (ids.length === 0) return NextResponse.json({ error: "缺少文件ID" }, { status: 400 });
+    if (body.periodStart && body.periodEnd && body.periodStart > body.periodEnd) {
+      return NextResponse.json({ error: "开始日期不能晚于结束日期" }, { status: 400 });
+    }
+    const supabase = getSupabaseClient();
+    const { error } = await supabase
+      .from("uploaded_files")
+      .update({
+        period_start: body.periodStart || null,
+        period_end: body.periodEnd || null,
+        period_label: body.periodLabel?.trim() || null,
+        parse_status: "manual",
+        parse_source: "user_input",
+      })
+      .in("id", ids);
+    if (error) return NextResponse.json({ error: `修正失败: ${error.message}` }, { status: 500 });
+    await logAudit(supabase, {
+      eventType: "file.update",
+      userId: user.userId,
+      username: user.username,
+      targetType: "file",
+      targetId: ids.join(","),
+      details: { periodStart: body.periodStart, periodEnd: body.periodEnd, periodLabel: body.periodLabel },
+      result: "success",
+    });
+    return NextResponse.json({ success: true, updatedCount: ids.length });
+  } catch {
+    return NextResponse.json({ error: "修正失败" }, { status: 500 });
+  }
+}
+
 // 恢复已删除的文件
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
@@ -154,7 +201,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  if (!hasPermission(user, 'files:delete')) {
+  if (!hasPermission(user, 'files:restore')) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
 

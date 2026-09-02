@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/storage/database/supabase-client"
 import { verifyPassword, hashPassword } from "@/lib/password"
-import { getSessionFromRequest } from "@/lib/session"
+import { deleteAllUserSessions } from "@/lib/session"
 import { requireAuth } from "@/lib/rbac"
 import { logAuditEvent, createAuditEntry } from "@/lib/audit"
 
@@ -26,9 +26,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 密码长度检查
-    if (newPassword.length < 6) {
+    if (newPassword.length < 10) {
       return NextResponse.json(
-        { error: "新密码长度不能少于6位" },
+        { error: "新密码长度不能少于10位" },
         { status: 400 }
       )
     }
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
       .from("admin_users")
       .update({
         password_hash: hashedPassword,
-        password: "", // 清空明文密码
+        password: null,
         must_change_password: false,
         updated_at: new Date().toISOString(),
       })
@@ -94,6 +94,9 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    // 修改密码后撤销全部旧会话，避免已泄露会话继续有效。
+    await deleteAllUserSessions(session.userId)
 
     // 记录审计日志
     await logAuditEvent(createAuditEntry(request, "auth.password_change", "success", {

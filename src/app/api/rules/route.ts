@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { requirePermission } from "@/lib/rbac";
 
 // 获取所有命名规则
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, "files:view");
+  if (auth.error) return auth.error;
   try {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
@@ -25,6 +28,8 @@ export async function GET() {
 
 // 创建新命名规则
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, "rules:manage");
+  if (auth.error) return auth.error;
   try {
     const body = await request.json();
     const { name, pattern, description, export_type } = body;
@@ -61,6 +66,8 @@ export async function POST(request: NextRequest) {
 
 // 更新命名规则
 export async function PUT(request: NextRequest) {
+  const auth = await requirePermission(request, "rules:manage");
+  if (auth.error) return auth.error;
   try {
     const body = await request.json();
     const { id, name, pattern, description, is_active, export_type } = body;
@@ -100,6 +107,8 @@ export async function PUT(request: NextRequest) {
 
 // 删除命名规则
 export async function DELETE(request: NextRequest) {
+  const auth = await requirePermission(request, "rules:manage");
+  if (auth.error) return auth.error;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");

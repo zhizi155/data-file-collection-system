@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import archiver from "archiver";
@@ -43,6 +44,8 @@ async function queryInBatches<T>(
 
 // 批量下载 - 返回ZIP文件
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, "files:export");
+  if (auth.error) return auth.error;
   try {
     const body = await request.json();
     const { fileIds } = body;

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/storage/database/supabase-client"
+import { requirePermission } from "@/lib/rbac"
+import { hashPassword } from "@/lib/password"
 
 // 获取所有管理员账号
 export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, "account:manage")
+  if (auth.error) return auth.error
   try {
     const { searchParams } = new URL(request.url)
     const activeOnly = searchParams.get("active") === "true"
@@ -34,6 +38,8 @@ export async function GET(request: NextRequest) {
 
 // 创建管理员账号
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, "account:manage")
+  if (auth.error) return auth.error
   try {
     const body = await request.json()
     const { username, password, display_name, role = "sub" } = body
@@ -46,9 +52,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "无效的角色类型" }, { status: 400 })
     }
 
-    // 简单密码验证（实际生产环境应使用更严格的验证）
-    if (password.length < 4) {
-      return NextResponse.json({ error: "密码长度至少4位" }, { status: 400 })
+    if (password.length < 10) {
+      return NextResponse.json({ error: "密码长度至少10位" }, { status: 400 })
     }
 
     const supabase = getSupabaseClient()
@@ -64,12 +69,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "用户名已存在" }, { status: 400 })
     }
 
-    // 创建账号（密码使用简单存储，内部系统足够）
+    const passwordHash = await hashPassword(password)
     const { data, error } = await supabase
       .from("admin_users")
       .insert({
         username,
-        password, // 简单存储
+        password: null,
+        password_hash: passwordHash,
+        must_change_password: false,
         role,
         display_name: display_name || username,
         is_active: true,
@@ -92,6 +99,8 @@ export async function POST(request: NextRequest) {
 
 // 更新管理员账号
 export async function PUT(request: NextRequest) {
+  const auth = await requirePermission(request, "account:manage")
+  if (auth.error) return auth.error
   try {
     const body = await request.json()
     const { id, password, display_name, is_active } = body
@@ -118,12 +127,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "无权修改为主账号" }, { status: 403 })
     }
 
-    const updateData: Record<string, any> = {}
+    const updateData: Record<string, unknown> = {}
     if (password) {
-      if (password.length < 4) {
-        return NextResponse.json({ error: "密码长度至少4位" }, { status: 400 })
+      if (password.length < 10) {
+        return NextResponse.json({ error: "密码长度至少10位" }, { status: 400 })
       }
-      updateData.password = password
+      updateData.password = null
+      updateData.password_hash = await hashPassword(password)
+      updateData.must_change_password = false
     }
     if (display_name !== undefined) updateData.display_name = display_name
     if (is_active !== undefined) updateData.is_active = is_active
@@ -151,6 +162,8 @@ export async function PUT(request: NextRequest) {
 
 // 删除管理员账号
 export async function DELETE(request: NextRequest) {
+  const auth = await requirePermission(request, "account:manage")
+  if (auth.error) return auth.error
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")

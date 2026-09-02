@@ -21,6 +21,7 @@ async function checkLoginRateLimit(username: string, ipAddress: string): Promise
     .eq("ip_address", ipAddress)
     .eq("success", false)
     .gte("created_at", since)
+    .order("created_at", { ascending: true })
 
   if (error) {
     console.error("检查登录限流失败:", error)
@@ -54,7 +55,7 @@ async function upgradePasswordHash(userId: string, plainPassword: string): Promi
     const hashedPassword = await hashPassword(plainPassword)
     await supabase
       .from("admin_users")
-      .update({ password_hash: hashedPassword })
+      .update({ password_hash: hashedPassword, password: null })
       .eq("id", userId)
   } catch (error) {
     console.error("升级密码哈希失败:", error)
