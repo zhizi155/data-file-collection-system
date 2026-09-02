@@ -171,3 +171,35 @@ export async function logFileDelete(
     targetId: fileId,
   }))
 }
+
+/**
+ * 简化的审计日志记录函数
+ */
+export async function logAudit(
+  supabase: any,
+  entry: {
+    eventType: AuditEventType;
+    userId?: string;
+    username?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    targetType?: string;
+    targetId?: string;
+    details?: Record<string, any>;
+    result: 'success' | 'failure';
+    errorMessage?: string;
+  }
+): Promise<void> {
+  await supabase.from('audit_logs').insert({
+    event_type: entry.eventType,
+    user_id: entry.userId || null,
+    username: entry.username || null,
+    ip_address: entry.ipAddress || null,
+    user_agent: entry.userAgent || null,
+    target_type: entry.targetType || null,
+    target_id: entry.targetId || null,
+    details: entry.details || null,
+    result: entry.result,
+    error_message: entry.errorMessage || null
+  })
+}

@@ -182,3 +182,20 @@ export function setSessionCookie(token: string, maxAge: number = SESSION_MAX_AGE
 export function clearSessionCookie(): string {
   return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
 }
+
+/**
+ * 获取当前用户（从 Cookie 中获取会话）
+ */
+export async function getSessionUser(): Promise<SessionData | null> {
+  const cookieStore = await cookies()
+  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
+  if (!token) return null
+
+  const session = await validateSession(token)
+  if (session) {
+    // 异步刷新会话（不阻塞响应）
+    refreshSession(token).catch(console.error)
+  }
+
+  return session
+}
