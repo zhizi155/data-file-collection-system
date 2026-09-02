@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useAuth, isLoggedIn } from "@/hooks/useAuth"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login } = useAuth()
+  const { login, isAuthenticated, isLoading } = useAuth()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -20,10 +20,10 @@ export default function LoginPage() {
 
   // 检查是否已登录
   useEffect(() => {
-    if (isLoggedIn()) {
+    if (!isLoading && isAuthenticated) {
       router.replace("/admin")
     }
-  }, [router])
+  }, [router, isAuthenticated, isLoading])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()

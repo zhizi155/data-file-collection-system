@@ -16,52 +16,61 @@ interface AuthContextType {
   isLoading: boolean
   role: "main" | "sub" | null
   user: UserInfo | null
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
-  logout: () => void
+  mustChangePassword: boolean
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string; mustChangePassword?: boolean }>
+  logout: () => Promise<void>
+  checkSession: () => Promise<boolean>
   isMainAccount: boolean
   isSubAccount: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const AUTH_STORAGE_KEY = "admin_auth_token"
-const AUTH_USER_KEY = "admin_auth_user"
-const AUTH_TIME_KEY = "admin_auth_time"
-const AUTH_TIMEOUT = 7 * 24 * 60 * 60 * 1000 // 7天
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [role, setRole] = useState<"main" | "sub" | null>(null)
   const [user, setUser] = useState<UserInfo | null>(null)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
   const router = useRouter()
 
-  // 检查登录状态
-  const checkAuth = useCallback(async (): Promise<boolean> => {
+  // 检查会话状态
+  const checkSession = useCallback(async (): Promise<boolean> => {
     try {
-      const token = localStorage.getItem(AUTH_STORAGE_KEY)
-      const userStr = localStorage.getItem(AUTH_USER_KEY)
-      const loginTime = localStorage.getItem(AUTH_TIME_KEY)
+      const res = await fetch("/api/auth/session", {
+        credentials: "include", // 包含 Cookie
+      })
 
-      if (!token || !loginTime || !userStr) {
+      if (!res.ok) {
+        setIsAuthenticated(false)
+        setRole(null)
+        setUser(null)
         return false
       }
 
-      // 检查是否过期
-      const elapsed = Date.now() - new Date(loginTime).getTime()
-      if (elapsed > AUTH_TIMEOUT) {
-        localStorage.removeItem(AUTH_STORAGE_KEY)
-        localStorage.removeItem(AUTH_USER_KEY)
-        localStorage.removeItem(AUTH_TIME_KEY)
-        return false
+      const data = await res.json()
+
+      if (data.authenticated && data.user) {
+        setRole(data.user.role)
+        setUser({
+          id: data.user.id,
+          username: data.user.username,
+          role: data.user.role,
+          display_name: data.user.displayName,
+          is_active: true,
+        })
+        setIsAuthenticated(true)
+        return true
       }
 
-      // 解析用户信息
-      const userInfo = JSON.parse(userStr)
-      setRole(userInfo.role)
-      setUser(userInfo)
-      return true
+      setIsAuthenticated(false)
+      setRole(null)
+      setUser(null)
+      return false
     } catch {
+      setIsAuthenticated(false)
+      setRole(null)
+      setUser(null)
       return false
     }
   }, [])
@@ -70,19 +79,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initAuth = async () => {
       setIsLoading(true)
-      const valid = await checkAuth()
-      setIsAuthenticated(valid)
+      await checkSession()
       setIsLoading(false)
     }
     initAuth()
-  }, [checkAuth])
+  }, [checkSession])
 
   // 登录
-  const login = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (username: string, password: string): Promise<{ success: boolean; error?: string; mustChangePassword?: boolean }> => {
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // 包含 Cookie
         body: JSON.stringify({ username, password }),
       })
 
@@ -92,8 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: data.error || "登录失败" }
       }
 
-      // 保存登录信息
-      const token = data.token
+      // 设置用户信息
       const userInfo: UserInfo = {
         id: data.user.id,
         username: data.user.username,
@@ -102,28 +110,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         is_active: data.user.is_active,
       }
 
-      localStorage.setItem(AUTH_STORAGE_KEY, token)
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userInfo))
-      localStorage.setItem(AUTH_TIME_KEY, new Date().toISOString())
-
       setRole(userInfo.role)
       setUser(userInfo)
       setIsAuthenticated(true)
+      setMustChangePassword(data.mustChangePassword || false)
 
-      return { success: true }
+      return { 
+        success: true, 
+        mustChangePassword: data.mustChangePassword || false 
+      }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : "登录失败" }
     }
   }
 
   // 登出
-  const logout = useCallback(() => {
-    localStorage.removeItem(AUTH_STORAGE_KEY)
-    localStorage.removeItem(AUTH_USER_KEY)
-    localStorage.removeItem(AUTH_TIME_KEY)
+  const logout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      })
+    } catch {
+      // 忽略登出错误
+    }
+
     setIsAuthenticated(false)
     setRole(null)
     setUser(null)
+    setMustChangePassword(false)
     router.push("/admin/login")
   }, [router])
 
@@ -134,8 +149,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         role,
         user,
+        mustChangePassword,
         login,
         logout,
+        checkSession,
         isMainAccount: role === "main",
         isSubAccount: role === "sub",
       }}
@@ -151,39 +168,4 @@ export function useAuth() {
     throw new Error("useAuth must be used within an AuthProvider")
   }
   return context
-}
-
-// 获取当前用户信息
-export function getCurrentUser(): UserInfo | null {
-  if (typeof window === "undefined") return null
-  try {
-    const userStr = localStorage.getItem(AUTH_USER_KEY)
-    if (!userStr) return null
-    return JSON.parse(userStr)
-  } catch {
-    return null
-  }
-}
-
-// 检查是否为主账号
-export function isMainAccount(): boolean {
-  const user = getCurrentUser()
-  return user?.role === "main"
-}
-
-// 检查是否已登录
-export function isLoggedIn(): boolean {
-  if (typeof window === "undefined") return false
-  const token = localStorage.getItem(AUTH_STORAGE_KEY)
-  const loginTime = localStorage.getItem(AUTH_TIME_KEY)
-  if (!token || !loginTime) return false
-
-  const elapsed = Date.now() - new Date(loginTime).getTime()
-  if (elapsed > AUTH_TIMEOUT) {
-    localStorage.removeItem(AUTH_STORAGE_KEY)
-    localStorage.removeItem(AUTH_USER_KEY)
-    localStorage.removeItem(AUTH_TIME_KEY)
-    return false
-  }
-  return true
 }
