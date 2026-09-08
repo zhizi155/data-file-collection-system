@@ -2536,39 +2536,36 @@ function CollectionProgressTable() {
     }
   };
 
-  // 联动计算逻辑
+  // 联动计算逻辑：生成某个多选框的候选项时忽略该字段自身，
+  // 保证同字段内可以继续多选；其他字段仍保持 AND 联动。
   useEffect(() => {
     if (progressData.length === 0) return;
-    
-    // 用站点/平台/负责人筛选数据（用于计算联动后的选项）
-    let linkedData = progressData;
 
-    if (filterSite.length > 0) {
-      linkedData = linkedData.filter((item) => filterSite.includes(item.shopSite));
-    }
-    if (filterPlatform.length > 0) {
-      linkedData = linkedData.filter((item) => filterPlatform.includes(item.shopPlatform));
-    }
-    if (filterManager.length > 0) {
-      linkedData = linkedData.filter((item) => filterManager.includes(item.shopManager || ""));
-    }
-    if (filterUploaded) {
-      if (filterUploaded === "yes") {
-        linkedData = linkedData.filter((item) => item.uploadCount > 0);
-      } else if (filterUploaded === "no") {
-        linkedData = linkedData.filter((item) => item.uploadCount === 0);
+    type ProgressFacet = "site" | "platform" | "manager";
+    const rowsForFacet = (ignoredFacet: ProgressFacet) => progressData.filter((item) => {
+      if (ignoredFacet !== "site" && filterSite.length > 0 && !filterSite.includes(item.shopSite)) {
+        return false;
       }
-    }
+      if (ignoredFacet !== "platform" && filterPlatform.length > 0 && !filterPlatform.includes(item.shopPlatform)) {
+        return false;
+      }
+      if (ignoredFacet !== "manager" && filterManager.length > 0 && !filterManager.includes(item.shopManager || "")) {
+        return false;
+      }
+      if (filterUploaded === "yes" && item.uploadCount === 0) return false;
+      if (filterUploaded === "no" && item.uploadCount > 0) return false;
+      return true;
+    });
 
-    // 根据联动后的数据，更新各筛选框的选项
-    const platformsInLinked = [...new Set(linkedData.map((d) => d.shopPlatform).filter(Boolean))].sort();
-    setAvailablePlatforms(platformsInLinked);
-
-    const sitesInLinked = [...new Set(linkedData.map((d) => d.shopSite).filter(Boolean))].sort();
-    setAvailableSites(sitesInLinked);
-
-    const managersInLinked = [...new Set(linkedData.map((d) => d.shopManager).filter(Boolean) as string[])].sort();
-    setAvailableManagers(managersInLinked);
+    setAvailablePlatforms([
+      ...new Set(rowsForFacet("platform").map((item) => item.shopPlatform).filter(Boolean)),
+    ].sort());
+    setAvailableSites([
+      ...new Set(rowsForFacet("site").map((item) => item.shopSite).filter(Boolean)),
+    ].sort());
+    setAvailableManagers([
+      ...new Set(rowsForFacet("manager").map((item) => item.shopManager).filter(Boolean) as string[]),
+    ].sort());
   }, [progressData, filterSite, filterPlatform, filterManager, filterUploaded]);
 
   const formatDate = (dateStr: string | null) => {

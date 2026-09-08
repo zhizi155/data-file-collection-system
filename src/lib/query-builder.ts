@@ -21,14 +21,17 @@ export interface FileFilterParams {
   view: FileView;
 }
 
-export type FileFilterFacet =
-  | "shopIds"
-  | "platforms"
-  | "sites"
-  | "exportTypes"
-  | "displayNames"
-  | "periodLabels"
-  | "managers";
+export const FILE_FILTER_FACETS = [
+  "shopIds",
+  "platforms",
+  "sites",
+  "exportTypes",
+  "displayNames",
+  "periodLabels",
+  "managers",
+] as const;
+
+export type FileFilterFacet = typeof FILE_FILTER_FACETS[number];
 
 /**
  * 生成某个筛选项的候选值时，忽略该筛选项自身的已选值。

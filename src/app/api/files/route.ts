@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import {
   buildNullableOrExpression,
+  FILE_FILTER_FACETS,
   FileFilterFacet,
   FileFilterInput,
   FileFilterParams,
@@ -117,16 +118,6 @@ function mapWithShops(files: UploadedFileRow[], shops: ShopRow[]) {
   }));
 }
 
-const FILTER_OPTION_FACETS: FileFilterFacet[] = [
-  "shopIds",
-  "platforms",
-  "sites",
-  "managers",
-  "exportTypes",
-  "displayNames",
-  "periodLabels",
-];
-
 function matchesStringSelection(value: string | null | undefined, selected: string[]): boolean {
   return selected.length === 0 || (Boolean(value) && selected.includes(value as string));
 }
@@ -151,7 +142,7 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
 
 async function buildFilterOptions(filters: FileFilterParams) {
   const supabase = getSupabaseClient();
-  const baseFilters = FILTER_OPTION_FACETS.reduce(
+  const baseFilters = FILE_FILTER_FACETS.reduce(
     (current, facet) => withoutFileFilterFacet(current, facet),
     filters,
   );
