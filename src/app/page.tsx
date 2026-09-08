@@ -465,7 +465,7 @@ export default function UploadPage() {
           </CardContent>
         </Card>
 
-        <div className="text-center"><Link className="text-sm text-slate-500 hover:text-slate-800" href="/admin/login">进入管理后台</Link></div>
+        <div className="text-center"><Link className="text-sm text-slate-500 hover:text-slate-800" href="/admin/login">进入财务文件收集系统管理后台</Link></div>
       </div>
     </main>
   );

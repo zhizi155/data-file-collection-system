@@ -52,7 +52,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">
-            管理后台
+            财务文件收集系统 - 管理后台
           </CardTitle>
           <CardDescription className="text-center">
             请输入管理员账号登录
@@ -109,7 +109,7 @@ export default function LoginPage() {
               href="/"
               className="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
             >
-              返回上传页面
+              返回财务文件上传页面
             </Link>
           </div>
         </CardContent>

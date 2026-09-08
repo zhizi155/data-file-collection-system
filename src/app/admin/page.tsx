@@ -1092,7 +1092,7 @@ export default function AdminPage() {
             </TabsTrigger>
             <TabsTrigger value="progress" className="gap-2">
               <File className="w-4 h-4" />
-              收集进度
+              财务文件收集进度
             </TabsTrigger>
             {isMainAccount && (
               <>
@@ -1687,16 +1687,16 @@ export default function AdminPage() {
             </Card>
           </TabsContent>
 
-          {/* 文件收集进度 */}
+          {/* 财务文件收集进度 */}
           <TabsContent value="progress">
             <Card className="shadow-lg">
               <CardHeader>
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <File className="w-5 h-5" />
-                    文件收集进度
+                    财务文件收集进度
                   </CardTitle>
-                  <CardDescription>查看各店铺各保存类型的文件收集情况</CardDescription>
+                  <CardDescription>查看各店铺各保存类型的财务文件收集情况</CardDescription>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2239,7 +2239,7 @@ export default function AdminPage() {
                       <DialogHeader>
                         <DialogTitle>{editingAccount ? "编辑账号" : "新增子账号"}</DialogTitle>
                         <DialogDescription>
-                          {editingAccount ? "修改账号信息" : "创建一个新的子账号，子账号仅能查看上传记录和收集进度"}
+                          {editingAccount ? "修改账号信息" : "创建一个新的子账号，子账号仅能查看上传记录和财务文件收集进度"}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
@@ -2419,7 +2419,7 @@ export default function AdminPage() {
   );
 }
 
-// 文件收集进度表格组件
+// 财务文件收集进度表格组件
 function CollectionProgressTable() {
   const [progressData, setProgressData] = useState<Array<{
     shopId: string;
@@ -2530,7 +2530,7 @@ function CollectionProgressTable() {
         setAvailableManagers(allManagers);
       }
     } catch (err) {
-      console.error("加载收集进度失败:", err);
+      console.error("加载财务文件收集进度失败:", err);
     } finally {
       setLoading(false);
     }
@@ -2682,7 +2682,7 @@ function CollectionProgressTable() {
 
       {filteredData.length === 0 ? (
         <div className="text-center py-8 text-slate-500">
-          暂无收集进度数据。请确保已配置店铺的保存类型。
+          暂无财务文件收集进度数据。请确保已配置店铺的保存类型。
         </div>
       ) : (
         <div className="overflow-x-auto">

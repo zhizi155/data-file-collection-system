@@ -11,28 +11,23 @@ export const metadata: Metadata = {
   description:
     '财务文件收集系统 - 便捷的文件上传与管理平台，支持自定义命名规则、店铺管理等功能。',
   keywords: [
-    '扣子编程',
-    'Coze Code',
-    'Vibe Coding',
-    'AI 编程',
-    '智能体搭建',
-    '工作流搭建',
-    '网站搭建',
-    '网站部署',
-    '全栈开发',
-    'AI 工程师',
+    '财务文件收集系统',
+    '财务文件管理',
+    '财务文件上传',
+    '文件版本管理',
+    '店铺文件管理',
   ],
-  authors: [{ name: 'Coze Code Team', url: 'https://code.coze.cn' }],
+  authors: [{ name: '财务文件收集系统' }],
   generator: 'Coze Code',
   icons: {
     icon: '/favicon.png',
   },
   openGraph: {
-    title: '扣子编程 | 你的 AI 工程师已就位',
+    title: '财务文件收集系统',
     description:
-      '我正在使用扣子编程 Vibe Coding，让创意瞬间上线。告别拖拽，拥抱心流。',
-    url: 'https://code.coze.cn',
-    siteName: '扣子编程',
+      '便捷的财务文件上传与管理平台，支持自定义命名规则、店铺管理和文件版本管理。',
+    url: 'https://v28gcjnswf.coze.site',
+    siteName: '财务文件收集系统',
     locale: 'zh_CN',
     type: 'website',
     // images: [
@@ -65,7 +60,7 @@ export default function RootLayout({
   const isDev = process.env.COZE_PROJECT_ENV === 'DEV';
 
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <body className={`antialiased`}>
         <AuthProvider>
           {isDev && <Inspector />}
