@@ -8,6 +8,7 @@ import {
   matchesNullableSelection,
   normalizeFileFilters,
   sanitizeArchiveSegment,
+  withoutFileFilterFacet,
 } from "../src/lib/query-builder";
 
 test("normalizes aliases, removes duplicates and preserves AND-ready groups", () => {
@@ -32,6 +33,20 @@ test("nullable selections support explicit missing values", () => {
     buildNullableOrExpression("period_label", [NULL_FILTER_VALUE, "2026-08"]),
     'period_label.is.null,period_label.in.("2026-08")',
   );
+});
+
+test("facet options ignore only their own selected values", () => {
+  const filters = normalizeFileFilters({
+    shopIds: ["shop-a"],
+    platforms: ["Shopee"],
+    exportTypes: ["订单"],
+  });
+
+  const exportTypeOptions = withoutFileFilterFacet(filters, "exportTypes");
+  assert.deepEqual(exportTypeOptions.exportTypes, []);
+  assert.deepEqual(exportTypeOptions.shopIds, ["shop-a"]);
+  assert.deepEqual(exportTypeOptions.platforms, ["Shopee"]);
+  assert.deepEqual(filters.exportTypes, ["订单"]);
 });
 
 test("archive names cannot escape directories and remain unique case-insensitively", () => {

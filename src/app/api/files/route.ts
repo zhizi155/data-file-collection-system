@@ -4,9 +4,12 @@ import { requirePermission } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import {
   buildNullableOrExpression,
+  FileFilterFacet,
   FileFilterInput,
   FileFilterParams,
+  matchesNullableSelection,
   normalizeFileFilters,
+  withoutFileFilterFacet,
 } from "@/lib/query-builder";
 
 interface UploadedFileRow {
@@ -114,31 +117,82 @@ function mapWithShops(files: UploadedFileRow[], shops: ShopRow[]) {
   }));
 }
 
-function emptyOptions() {
-  return { shops: [], platforms: [], sites: [], managers: [], exportTypes: [], displayNames: [], periodLabels: [] };
+const FILTER_OPTION_FACETS: FileFilterFacet[] = [
+  "shopIds",
+  "platforms",
+  "sites",
+  "managers",
+  "exportTypes",
+  "displayNames",
+  "periodLabels",
+];
+
+function matchesStringSelection(value: string | null | undefined, selected: string[]): boolean {
+  return selected.length === 0 || (Boolean(value) && selected.includes(value as string));
 }
 
-async function buildFilterOptions(filters: FileFilterParams, matchingShopIds: string[]) {
+function matchesFilterOptionRow(
+  row: UploadedFileRow,
+  shop: ShopRow | undefined,
+  filters: FileFilterParams,
+): boolean {
+  return matchesStringSelection(row.shop_id, filters.shopIds)
+    && matchesStringSelection(shop?.platform, filters.platforms)
+    && matchesStringSelection(shop?.site, filters.sites)
+    && matchesNullableSelection(shop?.manager, filters.managers)
+    && matchesNullableSelection(row.export_type, filters.exportTypes)
+    && matchesNullableSelection(row.display_name, filters.displayNames)
+    && matchesNullableSelection(row.period_label, filters.periodLabels);
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
+}
+
+async function buildFilterOptions(filters: FileFilterParams) {
   const supabase = getSupabaseClient();
-  const { data } = await executeFileQuery(filters, matchingShopIds);
-  const rows = (data ?? []) as UploadedFileRow[];
-  const shopIds = [...new Set(rows.map((row) => row.shop_id).filter((id): id is string => Boolean(id)))];
-  let shops: ShopRow[] = [];
-  if (shopIds.length > 0) {
-    const { data: shopData } = await supabase
-      .from("shops")
-      .select("id, name, site, platform, manager")
-      .in("id", shopIds);
-    shops = (shopData ?? []) as ShopRow[];
-  }
+  const baseFilters = FILTER_OPTION_FACETS.reduce(
+    (current, facet) => withoutFileFilterFacet(current, facet),
+    filters,
+  );
+  const [fileResult, shopResult] = await Promise.all([
+    executeFileQuery(baseFilters, []),
+    supabase.from("shops").select("id, name, site, platform, manager"),
+  ]);
+  if (fileResult.error) throw fileResult.error;
+  if (shopResult.error) throw shopResult.error;
+
+  const rows = (fileResult.data ?? []) as UploadedFileRow[];
+  const allShops = (shopResult.data ?? []) as ShopRow[];
+  const shopsById = new Map(allShops.map((shop) => [shop.id, shop]));
+  const rowsForFacet = (facet: FileFilterFacet) => {
+    const facetFilters = withoutFileFilterFacet(filters, facet);
+    return rows.filter((row) => matchesFilterOptionRow(
+      row,
+      row.shop_id ? shopsById.get(row.shop_id) : undefined,
+      facetFilters,
+    ));
+  };
+
+  const shopOptionIds = new Set(rowsForFacet("shopIds").map((row) => row.shop_id).filter(Boolean));
+  const shops = allShops
+    .filter((shop) => shopOptionIds.has(shop.id))
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  const platformRows = rowsForFacet("platforms");
+  const siteRows = rowsForFacet("sites");
+  const managerRows = rowsForFacet("managers");
+  const exportTypeRows = rowsForFacet("exportTypes");
+  const displayNameRows = rowsForFacet("displayNames");
+  const periodLabelRows = rowsForFacet("periodLabels");
+
   return {
-    shops: shops.sort((a, b) => a.name.localeCompare(b.name, "zh-CN")),
-    platforms: [...new Set(shops.map((shop) => shop.platform).filter(Boolean))].sort(),
-    sites: [...new Set(shops.map((shop) => shop.site).filter(Boolean))].sort(),
-    managers: [...new Set(shops.map((shop) => shop.manager).filter((value): value is string => Boolean(value)))].sort(),
-    exportTypes: [...new Set(rows.map((row) => row.export_type).filter((value): value is string => Boolean(value)))].sort(),
-    displayNames: [...new Set(rows.map((row) => row.display_name).filter((value): value is string => Boolean(value)))].sort(),
-    periodLabels: [...new Set(rows.map((row) => row.period_label).filter((value): value is string => Boolean(value)))].sort().reverse(),
+    shops,
+    platforms: uniqueStrings(platformRows.map((row) => row.shop_id ? shopsById.get(row.shop_id)?.platform : null)),
+    sites: uniqueStrings(siteRows.map((row) => row.shop_id ? shopsById.get(row.shop_id)?.site : null)),
+    managers: uniqueStrings(managerRows.map((row) => row.shop_id ? shopsById.get(row.shop_id)?.manager : null)),
+    exportTypes: uniqueStrings(exportTypeRows.map((row) => row.export_type)),
+    displayNames: uniqueStrings(displayNameRows.map((row) => row.display_name)),
+    periodLabels: uniqueStrings(periodLabelRows.map((row) => row.period_label)).reverse(),
   };
 }
 
@@ -151,14 +205,14 @@ async function handleFilesRequest(request: NextRequest, input: FilesRequestBody)
   const matchingShops = await resolveMatchingShops(filters);
   const matchingShopIds = matchingShops.map((shop) => shop.id);
 
-  if (hasShopFilters(filters) && matchingShopIds.length === 0) {
-    return NextResponse.json({ success: true, data: [], total: 0, options: emptyOptions() });
+  let rows: UploadedFileRow[] = [];
+  let total = 0;
+  if (!hasShopFilters(filters) || matchingShopIds.length > 0) {
+    const { data, error, count } = await executeFileQuery(filters, matchingShopIds, offset, limit);
+    if (error) return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
+    rows = (data ?? []) as UploadedFileRow[];
+    total = count ?? 0;
   }
-
-  const { data, error, count } = await executeFileQuery(filters, matchingShopIds, offset, limit);
-  if (error) return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
-
-  const rows = (data ?? []) as UploadedFileRow[];
   const pageShopIds = [...new Set(rows.map((row) => row.shop_id).filter((id): id is string => Boolean(id)))];
   const supabase = getSupabaseClient();
   let pageShops: ShopRow[] = [];
@@ -172,11 +226,11 @@ async function handleFilesRequest(request: NextRequest, input: FilesRequestBody)
 
   const options = input.includeOptions === false
     ? undefined
-    : await buildFilterOptions(filters, matchingShopIds);
+    : await buildFilterOptions(filters);
   return NextResponse.json({
     success: true,
     data: mapWithShops(rows, pageShops),
-    total: count ?? 0,
+    total,
     limit,
     offset,
     options,

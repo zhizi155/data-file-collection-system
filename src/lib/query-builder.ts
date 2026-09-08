@@ -21,6 +21,26 @@ export interface FileFilterParams {
   view: FileView;
 }
 
+export type FileFilterFacet =
+  | "shopIds"
+  | "platforms"
+  | "sites"
+  | "exportTypes"
+  | "displayNames"
+  | "periodLabels"
+  | "managers";
+
+/**
+ * 生成某个筛选项的候选值时，忽略该筛选项自身的已选值。
+ * 这样同一字段内可以继续多选，同时仍保留其他字段之间的联动过滤。
+ */
+export function withoutFileFilterFacet(
+  filters: FileFilterParams,
+  facet: FileFilterFacet,
+): FileFilterParams {
+  return { ...filters, [facet]: [] };
+}
+
 export interface FileFilterInput {
   shopId?: unknown;
   shopIds?: unknown;
