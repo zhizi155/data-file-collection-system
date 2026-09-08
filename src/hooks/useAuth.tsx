@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 interface UserInfo {
   id: string
   username: string
-  role: "main" | "sub"
+  role: "main" | "sub_admin" | "sub"
   display_name: string
   is_active: boolean
 }
@@ -14,13 +14,14 @@ interface UserInfo {
 interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
-  role: "main" | "sub" | null
+  role: "main" | "sub_admin" | "sub" | null
   user: UserInfo | null
   mustChangePassword: boolean
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string; mustChangePassword?: boolean }>
   logout: () => Promise<void>
   checkSession: () => Promise<boolean>
   isMainAccount: boolean
+  isSubAdmin: boolean
   isSubAccount: boolean
 }
 
@@ -29,7 +30,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [role, setRole] = useState<"main" | "sub" | null>(null)
+  const [role, setRole] = useState<"main" | "sub_admin" | "sub" | null>(null)
   const [user, setUser] = useState<UserInfo | null>(null)
   const [mustChangePassword, setMustChangePassword] = useState(false)
   const router = useRouter()
@@ -154,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         checkSession,
         isMainAccount: role === "main",
+        isSubAdmin: role === "sub_admin",
         isSubAccount: role === "sub",
       }}
     >

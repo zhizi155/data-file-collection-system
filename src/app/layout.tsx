@@ -5,29 +5,28 @@ import { AuthProvider } from '@/hooks/useAuth';
 
 export const metadata: Metadata = {
   title: {
-    default: '财务文件收集系统',
-    template: '%s | 财务文件收集系统',
+    default: '数据文件收集系统',
+    template: '%s | 数据文件收集系统',
   },
   description:
-    '财务文件收集系统 - 便捷的文件上传与管理平台，支持自定义命名规则、店铺管理等功能。',
+    '数据文件收集系统 - 便捷的文件上传与管理平台，支持自定义命名规则、店铺管理等功能。',
   keywords: [
-    '财务文件收集系统',
-    '财务文件管理',
-    '财务文件上传',
+    '数据文件收集系统',
+    '数据文件管理',
+    '数据文件上传',
     '文件版本管理',
     '店铺文件管理',
   ],
-  authors: [{ name: '财务文件收集系统' }],
+  authors: [{ name: '数据文件收集系统' }],
   generator: 'Coze Code',
   icons: {
     icon: '/favicon.png',
   },
   openGraph: {
-    title: '财务文件收集系统',
+    title: '数据文件收集系统',
     description:
-      '便捷的财务文件上传与管理平台，支持自定义命名规则、店铺管理和文件版本管理。',
-    url: 'https://v28gcjnswf.coze.site',
-    siteName: '财务文件收集系统',
+      '便捷的数据文件上传与管理平台，支持自定义命名规则、店铺管理和文件版本管理。',
+    siteName: '数据文件收集系统',
     locale: 'zh_CN',
     type: 'website',
     // images: [

@@ -15,9 +15,20 @@ export type Permission =
   | 'audit:view'          // 查看审计日志
 
 // 角色权限映射
-const ROLE_PERMISSIONS: Record<'main' | 'sub', Permission[]> = {
+const ROLE_PERMISSIONS: Record<SessionData['role'], Permission[]> = {
   main: [
     'account:manage',
+    'rules:manage',
+    'files:delete',
+    'files:restore',
+    'files:export',
+    'files:view',
+    'files:update',
+    'shops:manage',
+    'variables:manage',
+    'audit:view',
+  ],
+  sub_admin: [
     'rules:manage',
     'files:delete',
     'files:restore',

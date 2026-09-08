@@ -228,13 +228,15 @@ export default function AdminPage() {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<AdminAccount | null>(null);
-  const [accountForm, setAccountForm] = useState({ username: "", password: "", display_name: "" });
+  const [accountForm, setAccountForm] = useState({ username: "", password: "", display_name: "", role: "sub" });
   const [accountSaving, setAccountSaving] = useState(false);
   const [deleteAccountId, setDeleteAccountId] = useState<string | null>(null);
   const [accountDeleting, setAccountDeleting] = useState(false);
 
   const isMainAccount = user?.role === "main";
+  const isSubAdmin = user?.role === "sub_admin";
   const isSubAccount = user?.role === "sub";
+  const hasFullAccess = isMainAccount || isSubAdmin;
 
   // 加载所有数据
   const loadData = useCallback(async () => {
@@ -299,10 +301,11 @@ export default function AdminPage() {
         username: account.username,
         password: "",
         display_name: account.display_name || "",
+        role: account.role,
       });
     } else {
       setEditingAccount(null);
-      setAccountForm({ username: "", password: "", display_name: "" });
+      setAccountForm({ username: "", password: "", display_name: "", role: "sub" });
     }
     setAccountModalOpen(true);
   };
@@ -323,7 +326,7 @@ export default function AdminPage() {
       const method = editingAccount ? "PUT" : "POST";
       const body = editingAccount
         ? { id: editingAccount.id, display_name: accountForm.display_name, password: accountForm.password || undefined }
-        : { username: accountForm.username, password: accountForm.password, display_name: accountForm.display_name, role: "sub" };
+        : { username: accountForm.username, password: accountForm.password, display_name: accountForm.display_name, role: accountForm.role };
 
       const res = await fetch(url, {
         method,
@@ -766,6 +769,7 @@ export default function AdminPage() {
       // 将空字符串转为 null
       const body = {
         ...ruleForm,
+        ...(editingRule?.id ? { id: editingRule.id } : {}),
         export_type: ruleForm.export_type || null,
       };
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1057,7 +1061,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-3">
             <Settings className="w-6 h-6 text-slate-600 dark:text-slate-400" />
             <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-              财务文件收集系统 - 管理后台
+              数据文件收集系统 - 管理后台
             </h1>
           </div>
           <div className="flex items-center gap-2">
@@ -1084,7 +1088,7 @@ export default function AdminPage() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${isMainAccount ? "grid-cols-6" : "grid-cols-2"} mb-6`}>
+          <TabsList className={`grid w-full ${isMainAccount ? "grid-cols-6" : hasFullAccess ? "grid-cols-5" : "grid-cols-2"} mb-6`}>
             <TabsTrigger value="files" className="gap-2">
               <File className="w-4 h-4" />
               上传记录
@@ -1092,9 +1096,9 @@ export default function AdminPage() {
             </TabsTrigger>
             <TabsTrigger value="progress" className="gap-2">
               <File className="w-4 h-4" />
-              财务文件收集进度
+              数据文件收集进度
             </TabsTrigger>
-            {isMainAccount && (
+            {hasFullAccess && (
               <>
                 <TabsTrigger value="rules" className="gap-2">
                   <FileText className="w-4 h-4" />
@@ -1110,10 +1114,12 @@ export default function AdminPage() {
                   自定义变量
                   {variables.length > 0 && <Badge variant="secondary" className="ml-1">{variables.length}</Badge>}
                 </TabsTrigger>
-                <TabsTrigger value="accounts" className="gap-2">
-                  <Settings className="w-4 h-4" />
-                  账号管理
-                </TabsTrigger>
+                {isMainAccount && (
+                  <TabsTrigger value="accounts" className="gap-2">
+                    <Settings className="w-4 h-4" />
+                    账号管理
+                  </TabsTrigger>
+                )}
               </>
             )}
           </TabsList>
@@ -1446,7 +1452,7 @@ export default function AdminPage() {
                                     </TooltipTrigger>
                                     <TooltipContent>恢复文件</TooltipContent>
                                   </Tooltip>
-                                ) : isMainAccount ? (
+                                ) : hasFullAccess ? (
                                   <>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -1687,16 +1693,16 @@ export default function AdminPage() {
             </Card>
           </TabsContent>
 
-          {/* 财务文件收集进度 */}
+          {/* 数据文件收集进度 */}
           <TabsContent value="progress">
             <Card className="shadow-lg">
               <CardHeader>
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <File className="w-5 h-5" />
-                    财务文件收集进度
+                    数据文件收集进度
                   </CardTitle>
-                  <CardDescription>查看各店铺各保存类型的财务文件收集情况</CardDescription>
+                  <CardDescription>查看各店铺各保存类型的数据文件收集情况</CardDescription>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2239,7 +2245,7 @@ export default function AdminPage() {
                       <DialogHeader>
                         <DialogTitle>{editingAccount ? "编辑账号" : "新增子账号"}</DialogTitle>
                         <DialogDescription>
-                          {editingAccount ? "修改账号信息" : "创建一个新的子账号，子账号仅能查看上传记录和财务文件收集进度"}
+                          {editingAccount ? "修改账号信息" : "创建子管理员或普通子账号"}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
@@ -2272,6 +2278,18 @@ export default function AdminPage() {
                             placeholder="请输入显示名称"
                           />
                         </div>
+                        {!editingAccount && (
+                          <div className="space-y-2">
+                            <Label htmlFor="accountRole">账号角色</Label>
+                            <Select value={accountForm.role} onValueChange={(role) => setAccountForm({ ...accountForm, role })}>
+                              <SelectTrigger id="accountRole"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="sub">普通子账号（仅查看记录和进度）</SelectItem>
+                                <SelectItem value="sub_admin">子管理员（除账号管理外的全部权限）</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setAccountModalOpen(false)}>取消</Button>
@@ -2306,7 +2324,7 @@ export default function AdminPage() {
                           <TableCell>{account.display_name || "-"}</TableCell>
                           <TableCell>
                             <Badge variant={account.role === "main" ? "default" : "secondary"}>
-                              {account.role === "main" ? "主账号" : "子账号"}
+                              {account.role === "main" ? "主账号" : account.role === "sub_admin" ? "子管理员" : "子账号"}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -2419,7 +2437,7 @@ export default function AdminPage() {
   );
 }
 
-// 财务文件收集进度表格组件
+// 数据文件收集进度表格组件
 function CollectionProgressTable() {
   const [progressData, setProgressData] = useState<Array<{
     shopId: string;
@@ -2530,7 +2548,7 @@ function CollectionProgressTable() {
         setAvailableManagers(allManagers);
       }
     } catch (err) {
-      console.error("加载财务文件收集进度失败:", err);
+      console.error("加载数据文件收集进度失败:", err);
     } finally {
       setLoading(false);
     }
@@ -2682,7 +2700,7 @@ function CollectionProgressTable() {
 
       {filteredData.length === 0 ? (
         <div className="text-center py-8 text-slate-500">
-          暂无财务文件收集进度数据。请确保已配置店铺的保存类型。
+          暂无数据文件收集进度数据。请确保已配置店铺的保存类型。
         </div>
       ) : (
         <div className="overflow-x-auto">

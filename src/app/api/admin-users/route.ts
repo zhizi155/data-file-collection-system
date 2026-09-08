@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "用户名和密码不能为空" }, { status: 400 })
     }
 
-    if (!["main", "sub"].includes(role)) {
+    if (!["main", "sub", "sub_admin"].includes(role)) {
       return NextResponse.json({ error: "无效的角色类型" }, { status: 400 })
     }
 

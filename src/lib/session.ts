@@ -12,7 +12,7 @@ export const SESSION_REFRESH_THRESHOLD = 24 * 60 * 60 // 1天内刷新（秒）
 export interface SessionData {
   userId: string
   username: string
-  role: 'main' | 'sub'
+  role: 'main' | 'sub_admin' | 'sub'
   displayName: string
   iat: number // 签发时间
   exp: number // 过期时间
@@ -32,7 +32,7 @@ function hashSessionToken(token: string): string {
 /**
  * 创建会话
  */
-export async function createSession(userId: string, username: string, role: 'main' | 'sub', displayName: string): Promise<string> {
+export async function createSession(userId: string, username: string, role: 'main' | 'sub_admin' | 'sub', displayName: string): Promise<string> {
   const token = generateSessionToken()
   const now = Math.floor(Date.now() / 1000)
 

@@ -198,7 +198,7 @@ export default function UploadPage() {
   }, [policy.maxBatchSize]);
 
   const resumeKey = (item: UploadItem) => [
-    "finance-upload-v2",
+    "data-upload-v2",
     selectedShop,
     selectedExportType,
     item.file.name,
@@ -386,7 +386,7 @@ export default function UploadPage() {
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
       <div className="mx-auto max-w-3xl space-y-6">
         <header className="text-center">
-          <h1 className="text-3xl font-bold text-slate-900">财务文件收集系统</h1>
+          <h1 className="text-3xl font-bold text-slate-900">数据文件收集系统</h1>
           <p className="mt-2 text-slate-600">批量上传、断点续传和文件版本管理</p>
         </header>
 
@@ -428,7 +428,7 @@ export default function UploadPage() {
                 className="absolute inset-0 size-full cursor-pointer opacity-0"
                 type="file"
                 multiple
-                aria-label="选择要上传的财务文件"
+                aria-label="选择要上传的数据文件"
                 disabled={busy || items.length >= policy.maxBatchSize}
                 onChange={(event) => { addFiles([...(event.target.files ?? [])]); event.target.value = ""; }}
               />
@@ -465,7 +465,7 @@ export default function UploadPage() {
           </CardContent>
         </Card>
 
-        <div className="text-center"><Link className="text-sm text-slate-500 hover:text-slate-800" href="/admin/login">进入财务文件收集系统管理后台</Link></div>
+        <div className="text-center"><Link className="text-sm text-slate-500 hover:text-slate-800" href="/admin/login">进入数据文件收集系统管理后台</Link></div>
       </div>
     </main>
   );

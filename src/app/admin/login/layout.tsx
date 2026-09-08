@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: {
-    absolute: '财务文件收集系统 - 管理后台登录',
+    absolute: '数据文件收集系统 - 管理后台登录',
   },
 };
 
