@@ -1057,7 +1057,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-3">
             <Settings className="w-6 h-6 text-slate-600 dark:text-slate-400" />
             <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-              文件收集系统 - 管理后台
+              财务文件收集系统 - 管理后台
             </h1>
           </div>
           <div className="flex items-center gap-2">
