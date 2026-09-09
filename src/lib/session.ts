@@ -2,21 +2,20 @@ import { cookies } from 'next/headers'
 import { NextRequest } from 'next/server'
 import crypto from 'crypto'
 import { getSupabaseClient } from '@/storage/database/supabase-client'
+import {
+  createSignedSessionToken,
+  isSignedSessionToken,
+  readSignedSessionPayload,
+  SessionData,
+  verifySignedSessionToken,
+} from '@/lib/session-token'
+
+export type { SessionData } from '@/lib/session-token'
 
 // 会话配置
 export const SESSION_COOKIE_NAME = 'session_token'
 export const SESSION_MAX_AGE = 7 * 24 * 60 * 60 // 7天（秒）
 export const SESSION_REFRESH_THRESHOLD = 24 * 60 * 60 // 1天内刷新（秒）
-
-// 会话数据结构
-export interface SessionData {
-  userId: string
-  username: string
-  role: 'main' | 'sub_admin' | 'sub'
-  displayName: string
-  iat: number // 签发时间
-  exp: number // 过期时间
-}
 
 /**
  * 生成安全的会话令牌
@@ -32,7 +31,13 @@ function hashSessionToken(token: string): string {
 /**
  * 创建会话
  */
-export async function createSession(userId: string, username: string, role: 'main' | 'sub_admin' | 'sub', displayName: string): Promise<string> {
+export async function createSession(
+  userId: string,
+  username: string,
+  role: 'main' | 'sub_admin' | 'sub',
+  displayName: string,
+  signingSecret: string,
+): Promise<string> {
   const token = generateSessionToken()
   const now = Math.floor(Date.now() / 1000)
 
@@ -47,20 +52,63 @@ export async function createSession(userId: string, username: string, role: 'mai
 
   // 存储到数据库
   const supabase = getSupabaseClient()
-  await supabase.from('sessions').insert({
+  const { error } = await supabase.from('sessions').insert({
     token: hashSessionToken(token),
     user_id: userId,
     data: sessionData,
     expires_at: new Date(sessionData.exp * 1000).toISOString(),
   })
 
-  return token
+  if (!error) return token
+
+  // 兼容尚未创建 sessions 表的旧项目。签名密钥来自账号密码哈希，
+  // 每次验证仍会重新读取账号状态，因此禁用账号或修改密码会立即失效。
+  console.warn('数据库会话不可用，使用签名会话兼容模式:', error.message)
+  return createSignedSessionToken(sessionData, signingSecret)
+}
+
+async function validateSignedSession(token: string): Promise<SessionData | null> {
+  const payload = readSignedSessionPayload(token)
+  if (!payload) return null
+
+  const supabase = getSupabaseClient()
+  let { data, error } = await supabase
+    .from('admin_users')
+    .select('id, username, role, display_name, is_active, password_hash, password')
+    .eq('id', payload.userId)
+    .maybeSingle()
+
+  // 极旧表可能还没有 password_hash 字段。
+  if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+    const legacy = await supabase
+      .from('admin_users')
+      .select('id, username, role, display_name, is_active, password')
+      .eq('id', payload.userId)
+      .maybeSingle()
+    data = legacy.data ? { ...legacy.data, password_hash: null } : null
+    error = legacy.error
+  }
+
+  if (error || !data || !data.is_active) return null
+  const secret = data.password_hash || data.password
+  const verified = secret ? verifySignedSessionToken(token, secret) : null
+  if (!verified) return null
+
+  if (!['main', 'sub_admin', 'sub'].includes(data.role)) return null
+  return {
+    ...verified,
+    username: data.username,
+    role: data.role,
+    displayName: data.display_name || data.username,
+  }
 }
 
 /**
  * 验证会话
  */
 export async function validateSession(token: string): Promise<SessionData | null> {
+  if (isSignedSessionToken(token)) return validateSignedSession(token)
+
   const supabase = getSupabaseClient()
   const tokenHash = hashSessionToken(token)
   let { data, error } = await supabase
@@ -100,6 +148,8 @@ export async function validateSession(token: string): Promise<SessionData | null
  * 刷新会话（滑动过期）
  */
 export async function refreshSession(token: string): Promise<void> {
+  if (isSignedSessionToken(token)) return
+
   const supabase = getSupabaseClient()
   const tokenHash = hashSessionToken(token)
 
@@ -136,6 +186,8 @@ export async function refreshSession(token: string): Promise<void> {
  * 删除会话
  */
 export async function deleteSession(token: string): Promise<void> {
+  if (isSignedSessionToken(token)) return
+
   const supabase = getSupabaseClient()
   await supabase.from('sessions').delete().in('token', [hashSessionToken(token), token])
 }
