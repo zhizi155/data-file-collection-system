@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, validateUploadCandidate } from "@/lib/upload-policy";
+import { getUploadedFilesSchemaMode } from "@/lib/database-capabilities";
 
 interface PreflightBody {
   fileName?: string;
@@ -36,16 +37,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, errors, policy }, { status: 400 });
     }
 
+    const schemaMode = await getUploadedFilesSchemaMode(supabase);
     let duplicateQuery = supabase
       .from("uploaded_files")
-      .select("id, original_name, display_name, version, created_at")
-      .eq("shop_id", body.shopId!)
-      .eq("is_current", true)
-      .eq("is_deleted", false);
+      .select("*")
+      .eq("shop_id", body.shopId!);
+    if (schemaMode === "versioned") {
+      duplicateQuery = duplicateQuery.eq("is_current", true).eq("is_deleted", false);
+    }
     duplicateQuery = body.exportType
       ? duplicateQuery.eq("export_type", body.exportType)
       : duplicateQuery.eq("original_name", body.fileName!);
-    const { data: duplicate } = await duplicateQuery.maybeSingle();
+    const { data: duplicate } = await duplicateQuery
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     return NextResponse.json({
       success: true,
@@ -53,7 +59,7 @@ export async function POST(request: NextRequest) {
       duplicate: duplicate ? {
         id: duplicate.id,
         name: duplicate.display_name || duplicate.original_name,
-        version: duplicate.version || 1,
+        version: "version" in duplicate ? duplicate.version || 1 : 1,
         createdAt: duplicate.created_at,
       } : null,
     });

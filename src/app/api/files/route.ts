@@ -3,6 +3,11 @@ import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { requirePermission } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import {
+  getUploadedFilesSchemaMode,
+  normalizeUploadedFileForSchema,
+  UploadedFilesSchemaMode,
+} from "@/lib/database-capabilities";
+import {
   buildNullableOrExpression,
   FILE_FILTER_FACETS,
   FileFilterFacet,
@@ -75,9 +80,14 @@ async function resolveMatchingShops(filters: FileFilterParams): Promise<ShopRow[
 async function executeFileQuery(
   filters: FileFilterParams,
   matchingShopIds: string[],
+  schemaMode: UploadedFilesSchemaMode,
   offset?: number,
   limit?: number,
 ) {
+  if (schemaMode === "legacy" && filters.view === "trash") {
+    return { data: [], error: null, count: 0 };
+  }
+
   const supabase = getSupabaseClient();
   let query = supabase.from("uploaded_files").select("*", { count: "exact" });
   if (hasShopFilters(filters)) query = query.in("shop_id", matchingShopIds);
@@ -87,17 +97,19 @@ async function executeFileQuery(
   if (displayExpression) query = query.or(displayExpression);
   if (filters.displayNameContains) query = query.ilike("display_name", `%${filters.displayNameContains}%`);
 
-  const periodExpression = buildNullableOrExpression("period_label", filters.periodLabels);
-  if (periodExpression) query = query.or(periodExpression);
-  if (filters.periodStart) query = query.gte("period_start", filters.periodStart);
-  if (filters.periodEnd) query = query.lte("period_end", filters.periodEnd);
+  if (schemaMode === "versioned") {
+    const periodExpression = buildNullableOrExpression("period_label", filters.periodLabels);
+    if (periodExpression) query = query.or(periodExpression);
+    if (filters.periodStart) query = query.gte("period_start", filters.periodStart);
+    if (filters.periodEnd) query = query.lte("period_end", filters.periodEnd);
 
-  if (filters.view === "current") {
-    query = query.eq("is_current", true).eq("is_deleted", false);
-  } else if (filters.view === "history") {
-    query = query.eq("is_deleted", false);
-  } else if (filters.view === "trash") {
-    query = query.eq("is_deleted", true);
+    if (filters.view === "current") {
+      query = query.eq("is_current", true).eq("is_deleted", false);
+    } else if (filters.view === "history") {
+      query = query.eq("is_deleted", false);
+    } else if (filters.view === "trash") {
+      query = query.eq("is_deleted", true);
+    }
   }
 
   query = query.order("created_at", { ascending: false });
@@ -140,20 +152,22 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
 }
 
-async function buildFilterOptions(filters: FileFilterParams) {
+async function buildFilterOptions(filters: FileFilterParams, schemaMode: UploadedFilesSchemaMode) {
   const supabase = getSupabaseClient();
   const baseFilters = FILE_FILTER_FACETS.reduce(
     (current, facet) => withoutFileFilterFacet(current, facet),
     filters,
   );
   const [fileResult, shopResult] = await Promise.all([
-    executeFileQuery(baseFilters, []),
+    executeFileQuery(baseFilters, [], schemaMode),
     supabase.from("shops").select("id, name, site, platform, manager"),
   ]);
   if (fileResult.error) throw fileResult.error;
   if (shopResult.error) throw shopResult.error;
 
-  const rows = (fileResult.data ?? []) as UploadedFileRow[];
+  const rows = (fileResult.data ?? []).map((row) =>
+    normalizeUploadedFileForSchema(row, schemaMode),
+  ) as UploadedFileRow[];
   const allShops = (shopResult.data ?? []) as ShopRow[];
   const shopsById = new Map(allShops.map((shop) => [shop.id, shop]));
   const rowsForFacet = (facet: FileFilterFacet) => {
@@ -193,19 +207,22 @@ async function handleFilesRequest(request: NextRequest, input: FilesRequestBody)
   const limit = boundedInteger(input.limit, 20, 1, 200);
   const offset = boundedInteger(input.offset, 0, 0, 1_000_000);
   const filters = normalizeFileFilters(input);
+  const supabase = getSupabaseClient();
+  const schemaMode = await getUploadedFilesSchemaMode(supabase);
   const matchingShops = await resolveMatchingShops(filters);
   const matchingShopIds = matchingShops.map((shop) => shop.id);
 
   let rows: UploadedFileRow[] = [];
   let total = 0;
   if (!hasShopFilters(filters) || matchingShopIds.length > 0) {
-    const { data, error, count } = await executeFileQuery(filters, matchingShopIds, offset, limit);
+    const { data, error, count } = await executeFileQuery(filters, matchingShopIds, schemaMode, offset, limit);
     if (error) return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
-    rows = (data ?? []) as UploadedFileRow[];
+    rows = (data ?? []).map((row) =>
+      normalizeUploadedFileForSchema(row, schemaMode),
+    ) as UploadedFileRow[];
     total = count ?? 0;
   }
   const pageShopIds = [...new Set(rows.map((row) => row.shop_id).filter((id): id is string => Boolean(id)))];
-  const supabase = getSupabaseClient();
   let pageShops: ShopRow[] = [];
   if (pageShopIds.length > 0) {
     const { data: shopData } = await supabase
@@ -217,7 +234,7 @@ async function handleFilesRequest(request: NextRequest, input: FilesRequestBody)
 
   const options = input.includeOptions === false
     ? undefined
-    : await buildFilterOptions(filters);
+    : await buildFilterOptions(filters, schemaMode);
   return NextResponse.json({
     success: true,
     data: mapWithShops(rows, pageShops),
@@ -225,6 +242,12 @@ async function handleFilesRequest(request: NextRequest, input: FilesRequestBody)
     limit,
     offset,
     options,
+    capabilities: {
+      schemaMode,
+      versioning: schemaMode === "versioned",
+      recycleBin: schemaMode === "versioned",
+      periodMetadata: schemaMode === "versioned",
+    },
   });
 }
 
@@ -252,6 +275,12 @@ export async function DELETE(request: NextRequest) {
   if (ids.length === 0) return NextResponse.json({ error: "缺少文件ID" }, { status: 400 });
 
   const supabase = getSupabaseClient();
+  const schemaMode = await getUploadedFilesSchemaMode(supabase);
+  if (schemaMode === "legacy") {
+    return NextResponse.json({
+      error: "当前数据库仍是旧版结构，暂不支持移入回收站；请先完成数据库升级。",
+    }, { status: 409 });
+  }
   const { error } = await supabase
     .from("uploaded_files")
     .update({ is_deleted: true, deleted_at: new Date().toISOString(), deleted_by: auth.session!.userId })

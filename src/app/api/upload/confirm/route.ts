@@ -10,6 +10,7 @@ import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { getSessionUser } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
 import { parseDateFromFilename } from "@/lib/date-parser";
+import { getUploadedFilesSchemaMode } from "@/lib/database-capabilities";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -90,7 +91,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少必要参数" }, { status: 400 });
     }
 
-    if (idempotencyKey) {
+    const schemaMode = await getUploadedFilesSchemaMode(supabase);
+
+    if (idempotencyKey && schemaMode === "versioned") {
       const { data: replay } = await supabase
         .from("uploaded_files")
         .select("id, original_name, display_name, stored_key, file_size, version")
@@ -114,19 +117,26 @@ export async function POST(request: NextRequest) {
 
     let currentQuery = supabase
       .from("uploaded_files")
-      .select("id, version")
-      .eq("shop_id", shopId)
-      .eq("is_current", true)
-      .eq("is_deleted", false);
+      .select("*")
+      .eq("shop_id", shopId);
+    if (schemaMode === "versioned") {
+      currentQuery = currentQuery.eq("is_current", true).eq("is_deleted", false);
+    }
     currentQuery = exportType
       ? currentQuery.eq("export_type", exportType)
       : currentQuery.eq("original_name", originalName);
-    const { data: currentFile } = await currentQuery.maybeSingle();
+    const { data: currentFile } = await currentQuery
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
     if (currentFile && versionUpgradeConfirmed !== true) {
       await discardUnconfirmedUpload(objectKey, uploadId);
       return NextResponse.json({
         error: "检测到同店铺同类型文件，请确认创建新版本",
-        duplicate: { id: currentFile.id, version: currentFile.version || 1 },
+        duplicate: {
+          id: currentFile.id,
+          version: "version" in currentFile ? currentFile.version || 1 : 1,
+        },
       }, { status: 409 });
     }
 
@@ -161,9 +171,12 @@ export async function POST(request: NextRequest) {
       ? `${exportType}${extension ? `.${extension}` : ""}`
       : (displayName || objectKey.split("/").pop() || originalName);
     const parsedPeriod = parseDateFromFilename(originalName);
-    const newVersion = currentFile ? (currentFile.version || 1) + 1 : 1;
+    const currentVersion = currentFile && "version" in currentFile
+      ? Number(currentFile.version) || 1
+      : 1;
+    const newVersion = schemaMode === "versioned" && currentFile ? currentVersion + 1 : 1;
 
-    if (currentFile) {
+    if (currentFile && schemaMode === "versioned") {
       const { error: supersedeError } = await supabase
         .from("uploaded_files")
         .update({ is_current: false, superseded_at: new Date().toISOString() })
@@ -172,17 +185,19 @@ export async function POST(request: NextRequest) {
       if (supersedeError) throw supersedeError;
     }
 
-    const { data: newFile, error: insertError } = await supabase
-      .from("uploaded_files")
-      .insert({
-        original_name: originalName,
-        stored_key: objectKey,
-        display_name: finalDisplayName,
-        file_size: String(fileSize),
-        mime_type: mimeType || "application/octet-stream",
-        rule_id: ruleId || null,
-        shop_id: shopId,
-        export_type: exportType || null,
+    const baseInsert = {
+      original_name: originalName,
+      stored_key: objectKey,
+      display_name: finalDisplayName,
+      file_size: String(fileSize),
+      mime_type: mimeType || "application/octet-stream",
+      rule_id: ruleId || null,
+      shop_id: shopId,
+      export_type: exportType || null,
+    };
+    const insertPayload = schemaMode === "versioned"
+      ? {
+        ...baseInsert,
         version: newVersion,
         is_current: true,
         uploaded_by: user?.userId || null,
@@ -193,12 +208,17 @@ export async function POST(request: NextRequest) {
         period_label: parsedPeriod?.label || null,
         parse_status: parsedPeriod?.status || "pending",
         parse_source: parsedPeriod?.source || "filename",
-      })
+      }
+      : baseInsert;
+
+    const { data: newFile, error: insertError } = await supabase
+      .from("uploaded_files")
+      .insert(insertPayload)
       .select()
       .single();
 
     if (insertError) {
-      if (currentFile) {
+      if (currentFile && schemaMode === "versioned") {
         await supabase.from("uploaded_files").update({ is_current: true, superseded_at: null }).eq("id", currentFile.id);
       }
       await discardUnconfirmedUpload(objectKey);

@@ -6,6 +6,7 @@ import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { requirePermission } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { createUniqueArchivePath, sanitizeArchiveSegment } from "@/lib/query-builder";
+import { supportsExportJobs } from "@/lib/database-capabilities";
 
 interface ExportFile {
   id: string;
@@ -48,6 +49,12 @@ export async function POST(request: NextRequest) {
     if (fileIds.length > 5000) return NextResponse.json({ error: "单个导出任务最多 5000 个文件" }, { status: 400 });
 
     const supabase = getSupabaseClient();
+    if (!await supportsExportJobs(supabase)) {
+      return NextResponse.json({
+        error: "当前数据库尚未启用后台导出任务，已切换为兼容下载。",
+        fallbackEndpoint: "/api/files/batch-download",
+      }, { status: 409 });
+    }
     const { data: job, error } = await supabase.from("export_jobs").insert({
       user_id: auth.session!.userId,
       status: "pending",
@@ -81,6 +88,9 @@ export async function GET(request: NextRequest) {
   const offset = boundedInteger(searchParams.get("offset"), 0, 0, 10_000);
   const jobId = searchParams.get("jobId");
   const supabase = getSupabaseClient();
+  if (!await supportsExportJobs(supabase)) {
+    return NextResponse.json({ success: true, data: [], backgroundJobs: false });
+  }
 
   let query = supabase
     .from("export_jobs")
@@ -109,7 +119,11 @@ export async function DELETE(request: NextRequest) {
   if (auth.error) return auth.error;
   const jobId = new URL(request.url).searchParams.get("jobId");
   if (!jobId) return NextResponse.json({ error: "缺少任务ID" }, { status: 400 });
-  const { error } = await getSupabaseClient()
+  const supabase = getSupabaseClient();
+  if (!await supportsExportJobs(supabase)) {
+    return NextResponse.json({ error: "当前数据库尚未启用后台导出任务" }, { status: 409 });
+  }
+  const { error } = await supabase
     .from("export_jobs")
     .update({ status: "cancelled", completed_at: new Date().toISOString() })
     .eq("id", jobId)
