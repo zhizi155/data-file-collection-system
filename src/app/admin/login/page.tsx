@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useAuth, isLoggedIn } from "@/hooks/useAuth"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login } = useAuth()
+  const { login, isAuthenticated, isLoading } = useAuth()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -20,10 +20,10 @@ export default function LoginPage() {
 
   // 检查是否已登录
   useEffect(() => {
-    if (isLoggedIn()) {
+    if (!isLoading && isAuthenticated) {
       router.replace("/admin")
     }
-  }, [router])
+  }, [router, isAuthenticated, isLoading])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,7 +52,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">
-            管理后台
+            数据文件收集系统 - 管理后台
           </CardTitle>
           <CardDescription className="text-center">
             请输入管理员账号登录
@@ -109,7 +109,7 @@ export default function LoginPage() {
               href="/"
               className="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
             >
-              返回上传页面
+              返回数据文件上传页面
             </Link>
           </div>
         </CardContent>

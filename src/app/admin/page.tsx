@@ -22,6 +22,8 @@ import {
   CheckSquare,
   Square,
   Loader2,
+  ArchiveRestore,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +57,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { SearchSelect, SearchSelectItem } from "@/components/ui/search-select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
 
 interface NamingRule {
@@ -102,6 +105,14 @@ interface UploadedFile {
   export_type: string | null; // 文件保存类型
   created_at: string;
   date_range: string | null; // 智能识别的日期区间
+  period_start: string | null;
+  period_end: string | null;
+  period_label: string | null;
+  parse_status: string | null;
+  version: number;
+  is_current: boolean;
+  is_deleted: boolean;
+  deleted_at: string | null;
   shops?: {
     name: string;
     site: string;
@@ -109,9 +120,31 @@ interface UploadedFile {
   } | null;
 }
 
+interface AdminAccount {
+  id: string;
+  username: string;
+  role: string;
+  display_name: string | null;
+  is_active: boolean;
+  last_login_at: string | null;
+  login_count: number;
+  created_at: string;
+}
+
+interface ExportJob {
+  id: string;
+  status: "pending" | "processing" | "completed" | "failed" | "cancelled";
+  file_count: number;
+  processed_count: number;
+  failed_count: number;
+  result_url: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
 export default function AdminPage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user, logout } = useAuth();
   const [rules, setRules] = useState<NamingRule[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
   const [variables, setVariables] = useState<CustomVariable[]>([]);
@@ -129,6 +162,10 @@ export default function AdminPage() {
   const [fileFilterSite, setFileFilterSite] = useState<string[]>([]);
   const [fileFilterDateRange, setFileFilterDateRange] = useState<string[]>([]);
   const [fileFilterDisplayName, setFileFilterDisplayName] = useState<string[]>([]);
+  const [fileDisplayNameSearch, setFileDisplayNameSearch] = useState("");
+  const [debouncedDisplayNameSearch, setDebouncedDisplayNameSearch] = useState("");
+  const [fileView, setFileView] = useState<"current" | "history" | "trash">("current");
+  const [fileFilterExportType, setFileFilterExportType] = useState<string[]>([]);
   
   // 联动筛选的可选项（基于其他筛选条件过滤后的数据）
   const [availableDateRanges, setAvailableDateRanges] = useState<string[]>([]); // 所有可用的日期区间
@@ -136,6 +173,7 @@ export default function AdminPage() {
   const [availableShops, setAvailableShops] = useState<Shop[]>([]); // 基于联动的可用店铺
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([]); // 基于联动的可用平台
   const [availableSites, setAvailableSites] = useState<string[]>([]); // 基于联动的可用站点
+  const [availableFileExportTypes, setAvailableFileExportTypes] = useState<string[]>([]);
   
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -145,6 +183,7 @@ export default function AdminPage() {
   const [pageRangeModalOpen, setPageRangeModalOpen] = useState(false); // 页数范围下载弹窗
   const [downloadStartPage, setDownloadStartPage] = useState(1);
   const [downloadEndPage, setDownloadEndPage] = useState(1);
+  const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
 
   // 登录检查
   useEffect(() => {
@@ -185,70 +224,19 @@ export default function AdminPage() {
   const [varDeleting, setVarDeleting] = useState(false);
 
   // 账号管理状态
-  const [accounts, setAccounts] = useState<Array<{
-    id: string;
-    username: string;
-    role: string;
-    display_name: string | null;
-    is_active: boolean;
-    last_login_at: string | null;
-    login_count: number;
-    created_at: string;
-  }>>([]);
+  const [accounts, setAccounts] = useState<AdminAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<any>(null);
+  const [editingAccount, setEditingAccount] = useState<AdminAccount | null>(null);
   const [accountForm, setAccountForm] = useState({ username: "", password: "", display_name: "", role: "sub" });
   const [accountSaving, setAccountSaving] = useState(false);
   const [deleteAccountId, setDeleteAccountId] = useState<string | null>(null);
   const [accountDeleting, setAccountDeleting] = useState(false);
 
-  // 用户角色信息
-  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; role: string; display_name: string } | null>(null);
-  const isMainAccount = currentUser?.role === "main";
-  const isSubAccount = currentUser?.role === "sub";
-  const isSubAdmin = currentUser?.role === "sub_admin";
-  // 子管理员拥有大部分权限（除账号管理外）
+  const isMainAccount = user?.role === "main";
+  const isSubAdmin = user?.role === "sub_admin";
+  const isSubAccount = user?.role === "sub";
   const hasFullAccess = isMainAccount || isSubAdmin;
-
-  // 检查登录状态
-  useEffect(() => {
-    // 延迟检查，确保客户端已加载
-    const checkLogin = () => {
-      const loggedIn = localStorage.getItem("admin_auth_token");
-      const loginTime = localStorage.getItem("admin_auth_time");
-      const userStr = localStorage.getItem("admin_auth_user");
-
-      if (!loggedIn || !loginTime) {
-        router.push("/admin/login");
-        return;
-      }
-
-      // 检查是否过期（7天）
-      const elapsed = Date.now() - new Date(loginTime).getTime();
-      const AUTH_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
-      if (elapsed > AUTH_TIMEOUT) {
-        localStorage.removeItem("admin_auth_token");
-        localStorage.removeItem("admin_auth_time");
-        localStorage.removeItem("admin_auth_user");
-        router.push("/admin/login");
-        return;
-      }
-
-      // 解析用户信息
-      if (userStr) {
-        try {
-          const userInfo = JSON.parse(userStr);
-          setCurrentUser(userInfo);
-        } catch (e) {
-          console.error("解析用户信息失败", e);
-        }
-      }
-    };
-
-    const timer = setTimeout(checkLogin, 100);
-    return () => clearTimeout(timer);
-  }, [router]);
 
   // 加载所有数据
   const loadData = useCallback(async () => {
@@ -306,14 +294,14 @@ export default function AdminPage() {
   }, [activeTab, isMainAccount, loadAccounts]);
 
   // 账号相关操作
-  const openAccountModal = (account?: any) => {
+  const openAccountModal = (account?: AdminAccount) => {
     if (account) {
       setEditingAccount(account);
       setAccountForm({
         username: account.username,
         password: "",
         display_name: account.display_name || "",
-        role: account.role || "sub",
+        role: account.role,
       });
     } else {
       setEditingAccount(null);
@@ -360,7 +348,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleToggleAccount = async (account: any) => {
+  const handleToggleAccount = async (account: AdminAccount) => {
     try {
       const res = await fetch("/api/admin-users", {
         method: "PUT",
@@ -401,127 +389,57 @@ export default function AdminPage() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedDisplayNameSearch(fileDisplayNameSearch.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [fileDisplayNameSearch]);
+
   // 加载文件记录
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
-      // 先获取所有数据（用于计算联动筛选选项）- 使用 POST 避免 URL 过长
-      const allRes = await fetch("/api/files", {
+      const response = await fetch("/api/files", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ getAll: true }),
-      });
-      const allData = await allRes.json();
-      if (allData.success && allData.data) {
-        // 联动计算逻辑：所有5个筛选框（店铺/平台/站点/日期区间/保存文件名）全部联动
-        // 选择任一筛选条件，会影响其他筛选框的可用选项
-        
-        // 第一步：用所有筛选条件筛选数据（用于计算联动后的选项）
-        let linkedData = allData.data;
-
-        if (fileFilterShop.length > 0) {
-          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && fileFilterShop.includes(f.shop_id));
-        }
-        if (fileFilterPlatform.length > 0) {
-          const platformShopIds = shops.filter((s) => fileFilterPlatform.includes(s.platform)).map((s) => s.id);
-          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && platformShopIds.includes(f.shop_id));
-        }
-        if (fileFilterSite.length > 0) {
-          const siteShopIds = shops.filter((s) => fileFilterSite.includes(s.site)).map((s) => s.id);
-          linkedData = linkedData.filter((f: UploadedFile) => f.shop_id && siteShopIds.includes(f.shop_id));
-        }
-        // 日期区间筛选也参与联动
-        if (fileFilterDateRange.length > 0) {
-          const includeNone = fileFilterDateRange.includes("__NONE__");
-          const filteredDateRanges = fileFilterDateRange.filter((dr) => dr !== "__NONE__");
-          linkedData = linkedData.filter((f: UploadedFile) => {
-            if (includeNone && filteredDateRanges.length === 0) {
-              return f.date_range === null;
-            }
-            if (includeNone && filteredDateRanges.length > 0) {
-              if (f.date_range === null) return true;
-              return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
-            }
-            return filteredDateRanges.some((dr) => f.date_range?.toLowerCase().includes(dr.toLowerCase()));
-          });
-        }
-        // 保存文件名筛选也参与联动
-        if (fileFilterDisplayName.length > 0) {
-          const includeNone = fileFilterDisplayName.includes("__NONE__");
-          const filteredDisplayNames = fileFilterDisplayName.filter((dn) => dn !== "__NONE__");
-          linkedData = linkedData.filter((f: UploadedFile) => {
-            const fileDisplayName = f.display_name || null;
-            if (includeNone && filteredDisplayNames.length === 0) {
-              return fileDisplayName === null;
-            }
-            if (includeNone && filteredDisplayNames.length > 0) {
-              if (fileDisplayName === null) return true;
-              return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
-            }
-            return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
-          });
-        }
-
-        // 根据联动后的数据，更新各筛选框的选项
-        // 店铺/平台/站点选项（基于所有筛选条件联动后的数据）
-        const shopIdsInLinked = [...new Set(linkedData.map((f: UploadedFile) => f.shop_id).filter(Boolean))];
-        const shopsInLinked = shops.filter((s) => shopIdsInLinked.includes(s.id));
-        setAvailableShops(shopsInLinked);
-
-        const platformsInLinked = [...new Set(shopsInLinked.map((s) => s.platform).filter(Boolean))].sort();
-        setAvailablePlatforms(platformsInLinked);
-
-        const sitesInLinked = [...new Set(shopsInLinked.map((s) => s.site).filter(Boolean))].sort();
-        setAvailableSites(sitesInLinked);
-
-        // 日期区间和保存文件名选项（基于所有筛选条件联动后的数据）
-        const linkedDateRanges = [...new Set(
-          linkedData
-            .map((f: UploadedFile) => f.date_range)
-            .filter(Boolean) as string[]
-        )].sort();
-        setAvailableDateRanges(linkedDateRanges);
-
-        const linkedDisplayNames = [...new Set(
-          linkedData
-            .map((f: UploadedFile) => f.display_name)
-            .filter(Boolean) as string[]
-        )].sort();
-        setAvailableDisplayNames(linkedDisplayNames);
-      }
-
-      // 获取筛选后分页的数据
-      // 使用 POST 获取分页数据，避免 URL 过长
-      const requestBody: Record<string, unknown> = {
+        credentials: "include",
+        body: JSON.stringify({
         limit: pageSize,
         offset: (currentPage - 1) * pageSize,
-      };
-      if (fileFilterShop.length > 0) requestBody.shopId = fileFilterShop.join(",");
-      if (fileFilterPlatform.length > 0) requestBody.platform = fileFilterPlatform.join(",");
-      if (fileFilterSite.length > 0) requestBody.site = fileFilterSite.join(",");
-      if (fileFilterDateRange.length > 0) requestBody.dateRange = fileFilterDateRange.join(",");
-      if (fileFilterDisplayName.length > 0) requestBody.displayName = fileFilterDisplayName.join(",");
-      const res = await fetch("/api/files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
+          shopIds: fileFilterShop,
+          platforms: fileFilterPlatform,
+          sites: fileFilterSite,
+          periodLabels: fileFilterDateRange,
+          displayNames: fileFilterDisplayName,
+          displayNameContains: debouncedDisplayNameSearch,
+          exportTypes: fileFilterExportType,
+          view: fileView,
+          includeOptions: true,
+        }),
       });
-      const data = await res.json();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "加载失败");
       if (data.success) {
         setFiles(data.data);
         setTotalCount(data.total || 0);
+        const optionShopIds = new Set<string>((data.options?.shops ?? []).map((shop: { id: string }) => shop.id));
+        setAvailableShops(shops.filter((shop) => optionShopIds.has(shop.id)));
+        setAvailablePlatforms(data.options?.platforms ?? []);
+        setAvailableSites(data.options?.sites ?? []);
+        setAvailableDateRanges(data.options?.periodLabels ?? []);
+        setAvailableDisplayNames(data.options?.displayNames ?? []);
+        setAvailableFileExportTypes(data.options?.exportTypes ?? []);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {
       setFilesLoading(false);
     }
-  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, currentPage, pageSize, shops]);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, debouncedDisplayNameSearch, fileFilterExportType, fileView, currentPage, pageSize, shops]);
 
   // 当页码或每页条数变化时重置到第一页
   useEffect(() => {
     setCurrentPage(1);
-  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, pageSize]);
+  }, [fileFilterShop, fileFilterPlatform, fileFilterSite, fileFilterDateRange, fileFilterDisplayName, debouncedDisplayNameSearch, fileFilterExportType, fileView, pageSize]);
 
   useEffect(() => {
     if (activeTab === "files") {
@@ -609,228 +527,111 @@ export default function AdminPage() {
     setExportModalOpen(true);
   };
 
-  // 批量下载文件（服务端打包ZIP，保持目录结构：站点/平台/文件名）
+  const loadExportJobs = useCallback(async () => {
+    try {
+      const response = await fetch("/api/export-jobs?limit=10", { credentials: "include" });
+      const data = await response.json();
+      if (response.ok && data.success) setExportJobs(data.data);
+    } catch {
+      // 任务轮询失败不覆盖文件列表错误提示，下一轮会自动重试。
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "files") return;
+    loadExportJobs();
+    const timer = window.setInterval(() => loadExportJobs(), 3000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, loadExportJobs]);
+
+  const createExportJob = async (fileIds: string[]) => {
+    const uniqueIds = [...new Set(fileIds)];
+    if (uniqueIds.length === 0) {
+      setError("没有可下载的文件");
+      return;
+    }
+    setDownloading(true);
+    setDownloadStatus(`正在创建 ${uniqueIds.length} 个文件的异步任务…`);
+    try {
+      const response = await fetch("/api/export-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ fileIds: uniqueIds, includeHistory: fileView === "history" }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "创建任务失败");
+      setDownloadStatus("任务已创建，可离开页面，完成后回来下载");
+      setSelectedFiles(new Set());
+      setDownloadModalOpen(false);
+      setPageRangeModalOpen(false);
+      await loadExportJobs();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "创建导出任务失败");
+    } finally {
+      window.setTimeout(() => { setDownloading(false); setDownloadStatus(""); }, 1200);
+    }
+  };
+
+  const cancelExportJob = async (jobId: string) => {
+    await fetch(`/api/export-jobs?jobId=${encodeURIComponent(jobId)}`, { method: "DELETE", credentials: "include" });
+    await loadExportJobs();
+  };
+
+  // 下载任务在后台流式生成 ZIP，页面关闭后也会继续处理。
   const batchDownloadFiles = async () => {
     if (selectedFiles.size === 0) {
       setError("请先选择要下载的文件");
       return;
     }
 
-    try {
-      setDownloading(true);
-      setDownloadProgress(0);
-      setDownloadStatus("正在打包文件...");
-
-      // 调用服务端批量下载API
-      const response = await fetch("/api/files/batch-download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileIds: Array.from(selectedFiles) }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        setError(errorData.error || "打包失败");
-        setDownloading(false);
-        setDownloadStatus("");
-        return;
-      }
-
-      setDownloadStatus("正在下载...");
-
-      // 获取ZIP文件并触发下载
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `批量下载_${new Date().toISOString().split("T")[0]}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      setDownloadStatus("下载完成！");
-      setTimeout(() => {
-        setDownloading(false);
-        setDownloadProgress(0);
-        setDownloadStatus("");
-      }, 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "下载失败");
-      setDownloading(false);
-      setDownloadProgress(0);
-      setDownloadStatus("");
-    }
-  };
-
-  // 按页数批量下载
-  const downloadCurrentPageFiles = async () => {
-    if (files.length === 0) {
-      setError("当前页没有文件可下载");
-      return;
-    }
-
-    try {
-      setDownloading(true);
-      setDownloadProgress(0);
-      setDownloadStatus("正在打包文件...");
-
-      // 获取当前页所有文件的ID
-      const fileIds = files.map((f) => f.id);
-
-      // 调用服务端批量下载API
-      const response = await fetch("/api/files/batch-download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileIds }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        setError(errorData.error || "打包失败");
-        setDownloading(false);
-        setDownloadStatus("");
-        return;
-      }
-
-      setDownloadStatus("正在下载...");
-
-      // 获取ZIP文件并触发下载
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `批量下载_${new Date().toISOString().split("T")[0]}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      setDownloadStatus("下载完成！");
-      setTimeout(() => {
-        setDownloading(false);
-        setDownloadProgress(0);
-        setDownloadStatus("");
-      }, 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "下载失败");
-      setDownloading(false);
-      setDownloadProgress(0);
-      setDownloadStatus("");
-    }
-  };
-
-  // 按页数范围批量下载
-  const downloadPageRangeFiles = async () => {
-    const totalPages = Math.ceil(totalCount / pageSize);
-    if (downloadStartPage < 1 || downloadEndPage > totalPages || downloadStartPage > downloadEndPage) {
-      setError(`页数范围无效，请输入 1-${totalPages} 之间的页数`);
-      return;
-    }
-
-    try {
-      setDownloading(true);
-      setDownloadProgress(0);
-      setDownloadStatus("正在获取文件列表...");
-
-      // 构建筛选条件参数（使用 POST 请求避免 URL 过长）
-      const requestBody = {
-        shopId: fileFilterShop.length > 0 ? fileFilterShop : undefined,
-        platform: fileFilterPlatform.length > 0 ? fileFilterPlatform : undefined,
-        site: fileFilterSite.length > 0 ? fileFilterSite : undefined,
-        dateRange: fileFilterDateRange.length > 0 ? fileFilterDateRange : undefined,
-        displayName: fileFilterDisplayName.length > 0 ? fileFilterDisplayName : undefined,
-        limit: pageSize,
-      };
-
-      // 获取指定页数范围的所有文件
-      const allFiles: UploadedFile[] = [];
-      const startOffset = (downloadStartPage - 1) * pageSize;
-      const endOffset = downloadEndPage * pageSize;
-      
-      // 分批获取文件
-      for (let offset = startOffset; offset < endOffset; offset += pageSize) {
-        const res = await fetch("/api/files", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...requestBody, offset }),
-        });
-        const data = await res.json();
-        if (data.success && data.data) {
-          allFiles.push(...data.data);
-        }
-      }
-
-      if (allFiles.length === 0) {
-        setError("该页数范围内没有文件可下载");
-        setDownloading(false);
-        setDownloadStatus("");
-        return;
-      }
-
-      // 按店铺+保存类型去重，每个组合只保留最新的一条
-      const uniqueFilesMap = new Map<string, UploadedFile>();
-      for (const file of allFiles) {
-        const key = `${file.shop_id}|${file.export_type}`;
-        if (!uniqueFilesMap.has(key) || 
-            new Date(file.created_at) > new Date(uniqueFilesMap.get(key)!.created_at)) {
-          uniqueFilesMap.set(key, file);
-        }
-      }
-      const allFileIds = Array.from(uniqueFilesMap.values()).map(f => f.id);
-
-      setDownloadProgress(20);
-      setDownloadStatus(`正在打包 ${allFileIds.length} 个文件（每种类型最新1个）...`);
-
-      // 调用服务端批量下载API
-      const response = await fetch("/api/files/batch-download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileIds: allFileIds }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        setError(errorData.error || "打包失败");
-        setDownloading(false);
-        setDownloadProgress(0);
-        setDownloadStatus("");
-        return;
-      }
-
-      setDownloadProgress(80);
-      setDownloadStatus("正在下载...");
-
-      // 获取ZIP文件并触发下载
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `批量下载_${downloadStartPage}-${downloadEndPage}页_${new Date().toISOString().split("T")[0]}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      setDownloadProgress(100);
-      setDownloadStatus("下载完成！");
-      setPageRangeModalOpen(false);
-      setTimeout(() => {
-        setDownloading(false);
-        setDownloadProgress(0);
-        setDownloadStatus("");
-      }, 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "下载失败");
-      setDownloading(false);
-      setDownloadProgress(0);
-      setDownloadStatus("");
-    }
+    await createExportJob(Array.from(selectedFiles));
   };
 
   // 下载按钮点击处理（打开选择弹窗）
   const handleDownloadClick = () => {
     setDownloadModalOpen(true);
+  };
+
+  const createPageRangeExportJob = async () => {
+    const totalPages = Math.ceil(totalCount / pageSize);
+    if (downloadStartPage < 1 || downloadEndPage > totalPages || downloadStartPage > downloadEndPage) {
+      setError(`页数范围无效，请输入 1-${totalPages} 之间的页数`);
+      return;
+    }
+    try {
+      setDownloading(true);
+      setDownloadStatus("正在获取文件列表…");
+      const ids: string[] = [];
+      for (let page = downloadStartPage; page <= downloadEndPage; page += 1) {
+        const response = await fetch("/api/files", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            limit: pageSize,
+            offset: (page - 1) * pageSize,
+            shopIds: fileFilterShop,
+            platforms: fileFilterPlatform,
+            sites: fileFilterSite,
+            periodLabels: fileFilterDateRange,
+            displayNames: fileFilterDisplayName,
+            displayNameContains: debouncedDisplayNameSearch,
+            exportTypes: fileFilterExportType,
+            view: fileView,
+            includeOptions: false,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "获取文件列表失败");
+        ids.push(...(data.data as UploadedFile[]).map((file) => file.id));
+      }
+      await createExportJob(ids);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "创建下载任务失败");
+      setDownloading(false);
+      setDownloadStatus("");
+    }
   };
 
   // 批量删除选中文件
@@ -840,7 +641,7 @@ export default function AdminPage() {
       return;
     }
 
-    if (!confirm(`确定要删除选中的 ${selectedFiles.size} 条记录吗？此操作不可撤销。`)) {
+    if (!confirm(`确定将选中的 ${selectedFiles.size} 条记录移入回收站吗？之后可以恢复。`)) {
       return;
     }
 
@@ -888,7 +689,7 @@ export default function AdminPage() {
 
   // 删除文件记录
   const handleDeleteFileRecord = async (fileId: string) => {
-    if (!confirm("确定要删除这条记录吗？")) return;
+    if (!confirm("确定将这条记录移入回收站吗？")) return;
     try {
       const res = await fetch(`/api/files?id=${fileId}`, { method: "DELETE" });
       const data = await res.json();
@@ -905,6 +706,42 @@ export default function AdminPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败");
     }
+  };
+
+  const restoreFiles = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    try {
+      const response = await fetch("/api/files/item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "恢复失败");
+      setSelectedFiles(new Set());
+      await loadFiles();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "恢复失败");
+    }
+  };
+
+  const correctPeriod = async (file: UploadedFile) => {
+    const periodLabel = window.prompt("归属期间标签（例如 2026-08）", file.period_label || "");
+    if (periodLabel === null) return;
+    const periodStart = window.prompt("开始日期（YYYY-MM-DD，可留空）", file.period_start || "");
+    if (periodStart === null) return;
+    const periodEnd = window.prompt("结束日期（YYYY-MM-DD，可留空）", file.period_end || "");
+    if (periodEnd === null) return;
+    const response = await fetch("/api/files/item", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ ids: [file.id], periodLabel, periodStart, periodEnd }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) setError(data.error || "期间修正失败");
+    else await loadFiles();
   };
 
   // ========== 命名规则操作 ==========
@@ -932,6 +769,7 @@ export default function AdminPage() {
       // 将空字符串转为 null
       const body = {
         ...ruleForm,
+        ...(editingRule?.id ? { id: editingRule.id } : {}),
         export_type: ruleForm.export_type || null,
       };
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1195,11 +1033,8 @@ export default function AdminPage() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin_auth_token");
-    localStorage.removeItem("admin_auth_time");
-    localStorage.removeItem("admin_auth_user");
-    router.push("/admin/login");
+  const handleLogout = async () => {
+    await logout();
   };
 
   const formatDate = (dateStr: string) => {
@@ -1226,7 +1061,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-3">
             <Settings className="w-6 h-6 text-slate-600 dark:text-slate-400" />
             <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-              文件收集系统 - 管理后台
+              数据文件收集系统 - 管理后台
             </h1>
           </div>
           <div className="flex items-center gap-2">
@@ -1253,7 +1088,7 @@ export default function AdminPage() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${hasFullAccess ? "grid-cols-5" : isSubAccount ? "grid-cols-2" : "grid-cols-2"} mb-6`}>
+          <TabsList className={`grid w-full ${isMainAccount ? "grid-cols-6" : hasFullAccess ? "grid-cols-5" : "grid-cols-2"} mb-6`}>
             <TabsTrigger value="files" className="gap-2">
               <File className="w-4 h-4" />
               上传记录
@@ -1261,7 +1096,7 @@ export default function AdminPage() {
             </TabsTrigger>
             <TabsTrigger value="progress" className="gap-2">
               <File className="w-4 h-4" />
-              收集进度
+              数据文件收集进度
             </TabsTrigger>
             {hasFullAccess && (
               <>
@@ -1279,13 +1114,13 @@ export default function AdminPage() {
                   自定义变量
                   {variables.length > 0 && <Badge variant="secondary" className="ml-1">{variables.length}</Badge>}
                 </TabsTrigger>
+                {isMainAccount && (
+                  <TabsTrigger value="accounts" className="gap-2">
+                    <Settings className="w-4 h-4" />
+                    账号管理
+                  </TabsTrigger>
+                )}
               </>
-            )}
-            {isMainAccount && (
-              <TabsTrigger value="accounts" className="gap-2">
-                <Settings className="w-4 h-4" />
-                账号管理
-              </TabsTrigger>
             )}
           </TabsList>
 
@@ -1301,7 +1136,37 @@ export default function AdminPage() {
                     </CardTitle>
                     <CardDescription>查看所有上传文件记录，支持批量导出/下载</CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select value={fileView} onValueChange={(value) => setFileView(value as "current" | "history" | "trash")}>
+                      <SelectTrigger className="w-[140px]" aria-label="文件视图">
+                        <History className="mr-2 size-4" />
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="current">当前版本</SelectItem>
+                        <SelectItem value="history">全部版本</SelectItem>
+                        <SelectItem value="trash">回收站</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={fileDisplayNameSearch}
+                      onChange={(event) => setFileDisplayNameSearch(event.target.value)}
+                      placeholder="模糊搜索保存文件名"
+                      aria-label="模糊搜索保存文件名"
+                      className="w-[190px]"
+                    />
+                    <SearchSelect
+                      value={fileFilterExportType}
+                      onValueChange={setFileFilterExportType as (value: string | string[]) => void}
+                      placeholder="全部保存类型"
+                      className="min-w-[140px]"
+                      multiple
+                      showSelectAll
+                    >
+                      {availableFileExportTypes.map((type) => (
+                        <SearchSelectItem key={type} value={type}>{type}</SearchSelectItem>
+                      ))}
+                    </SearchSelect>
                     <SearchSelect
                       value={fileFilterPlatform}
                       onValueChange={setFileFilterPlatform as (value: string | string[]) => void}
@@ -1408,8 +1273,18 @@ export default function AdminPage() {
                       )}
                       {downloading ? "下载中..." : "批量下载"}
                     </Button>
-                    {/* 批量删除 - 仅主账号可用 */}
-                    {isMainAccount && (
+                    {fileView === "trash" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => restoreFiles(Array.from(selectedFiles))}
+                        disabled={selectedFiles.size === 0 || downloading}
+                        className="gap-2"
+                      >
+                        <ArchiveRestore className="w-4 h-4" />
+                        恢复所选 {selectedFiles.size > 0 && `(${selectedFiles.size})`}
+                      </Button>
+                    ) : isMainAccount ? (
                       <Button
                         variant="destructive"
                         size="sm"
@@ -1418,9 +1293,9 @@ export default function AdminPage() {
                         className="gap-2"
                       >
                         <Trash2 className="w-4 h-4" />
-                        批量删除 {selectedFiles.size > 0 && `(${selectedFiles.size})`}
+                        移入回收站 {selectedFiles.size > 0 && `(${selectedFiles.size})`}
                       </Button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 {/* 下载进度显示 */}
@@ -1431,6 +1306,42 @@ export default function AdminPage() {
                       <span className="text-slate-500">{Math.round(downloadProgress)}%</span>
                     </div>
                     <Progress value={downloadProgress} className="h-2" />
+                  </div>
+                )}
+                {exportJobs.length > 0 && (
+                  <div className="mt-4 space-y-2 rounded-lg border bg-slate-50 p-3 dark:bg-slate-900" aria-live="polite">
+                    <div className="text-sm font-medium">最近的后台导出任务</div>
+                    {exportJobs.slice(0, 5).map((job) => {
+                      const progress = job.file_count > 0
+                        ? Math.min(100, Math.round((job.processed_count / job.file_count) * 100))
+                        : 0;
+                      return (
+                        <div key={job.id} className="grid gap-2 rounded-md border bg-background p-2 sm:grid-cols-[1fr_auto] sm:items-center">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <Badge variant={job.status === "completed" ? "default" : job.status === "failed" ? "destructive" : "secondary"}>
+                                {{ pending: "等待中", processing: "处理中", completed: "已完成", failed: "失败", cancelled: "已取消" }[job.status]}
+                              </Badge>
+                              <span>{job.processed_count}/{job.file_count} 个文件</span>
+                              {job.failed_count > 0 && <span className="text-amber-600">失败 {job.failed_count}</span>}
+                              <span className="text-muted-foreground">{formatDate(job.created_at)}</span>
+                            </div>
+                            {(job.status === "pending" || job.status === "processing") && <Progress value={progress} className="mt-2 h-1.5" />}
+                            {job.error_message && <p className="mt-1 truncate text-xs text-red-600" title={job.error_message}>{job.error_message}</p>}
+                          </div>
+                          <div className="flex gap-2">
+                            {job.status === "completed" && job.result_url && (
+                              <Button size="sm" variant="outline" asChild>
+                                <a href={job.result_url} target="_blank" rel="noreferrer">下载 ZIP</a>
+                              </Button>
+                            )}
+                            {(job.status === "pending" || job.status === "processing") && (
+                              <Button size="sm" variant="ghost" onClick={() => cancelExportJob(job.id)}>取消</Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardHeader>
@@ -1462,6 +1373,7 @@ export default function AdminPage() {
                           <TableHead>店铺</TableHead>
                           <TableHead>文件大小</TableHead>
                           <TableHead>上传时间</TableHead>
+                          <TableHead>版本</TableHead>
                           <TableHead className="text-right">操作</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1509,22 +1421,46 @@ export default function AdminPage() {
                             </TableCell>
                             <TableCell>{formatFileSize(parseInt(file.file_size))}</TableCell>
                             <TableCell className="text-slate-500 text-sm">{formatDate(file.created_at)}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                <Badge variant={file.is_current ? "default" : "secondary"}>v{file.version || 1}</Badge>
+                                {file.is_deleted && <span className="text-xs text-red-500">已删除</span>}
+                                {!file.is_deleted && !file.is_current && <span className="text-xs text-slate-400">历史</span>}
+                              </div>
+                            </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
-                                {(isMainAccount || isSubAdmin) && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => window.open(`/api/files/download?key=${encodeURIComponent(file.stored_key)}`, "_blank")}
+                                      className="text-blue-500"
+                                    >
+                                      <LinkIcon className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>查看文件</TooltipContent>
+                                </Tooltip>
+                                {fileView === "trash" ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button variant="ghost" size="icon" onClick={() => restoreFiles([file.id])} className="text-emerald-600">
+                                        <ArchiveRestore className="w-4 h-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>恢复文件</TooltipContent>
+                                  </Tooltip>
+                                ) : hasFullAccess ? (
                                   <>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={() => window.open(`/api/files/download?key=${encodeURIComponent(file.stored_key)}`, "_blank")}
-                                          className="text-blue-500"
-                                        >
-                                          <LinkIcon className="w-4 h-4" />
+                                        <Button variant="ghost" size="icon" onClick={() => correctPeriod(file)} className="text-amber-600">
+                                          <Edit2 className="w-4 h-4" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>查看文件</TooltipContent>
+                                      <TooltipContent>修正归属期间</TooltipContent>
                                     </Tooltip>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -1540,7 +1476,7 @@ export default function AdminPage() {
                                       <TooltipContent>删除记录</TooltipContent>
                                     </Tooltip>
                                   </>
-                                )}
+                                ) : null}
                                 {isSubAccount && (
                                   <span className="text-xs text-slate-400">仅查看</span>
                                 )}
@@ -1745,7 +1681,7 @@ export default function AdminPage() {
                           <Button variant="ghost" onClick={() => setPageRangeModalOpen(false)}>
                             取消
                           </Button>
-                          <Button onClick={downloadPageRangeFiles} disabled={downloading}>
+                          <Button onClick={createPageRangeExportJob} disabled={downloading}>
                             {downloading ? "下载中..." : "确认下载"}
                           </Button>
                         </DialogFooter>
@@ -1757,16 +1693,16 @@ export default function AdminPage() {
             </Card>
           </TabsContent>
 
-          {/* 文件收集进度 */}
+          {/* 数据文件收集进度 */}
           <TabsContent value="progress">
             <Card className="shadow-lg">
               <CardHeader>
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <File className="w-5 h-5" />
-                    文件收集进度
+                    数据文件收集进度
                   </CardTitle>
-                  <CardDescription>查看各店铺各保存类型的文件收集情况</CardDescription>
+                  <CardDescription>查看各店铺各保存类型的数据文件收集情况</CardDescription>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2307,9 +2243,9 @@ export default function AdminPage() {
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
-                        <DialogTitle>{editingAccount ? "编辑账号" : "新增账号"}</DialogTitle>
+                        <DialogTitle>{editingAccount ? "编辑账号" : "新增子账号"}</DialogTitle>
                         <DialogDescription>
-                          {editingAccount ? "修改账号信息" : "创建一个新的账号，可选择子账号或子管理员角色"}
+                          {editingAccount ? "修改账号信息" : "创建子管理员或普通子账号"}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
@@ -2344,21 +2280,14 @@ export default function AdminPage() {
                         </div>
                         {!editingAccount && (
                           <div className="space-y-2">
-                            <Label htmlFor="accountRole">角色</Label>
-                            <select
-                              id="accountRole"
-                              value={accountForm.role}
-                              onChange={(e) => setAccountForm({ ...accountForm, role: e.target.value })}
-                              className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-                            >
-                              <option value="sub">子账号（仅查看上传记录和收集进度）</option>
-                              <option value="sub_admin">子管理员（拥有大部分管理权限）</option>
-                            </select>
-                            <p className="text-xs text-slate-500 mt-1">
-                              {accountForm.role === "sub" 
-                                ? "子账号只能查看上传记录和收集进度，无法管理规则、店铺、变量等"
-                                : "子管理员可管理命名规则、店铺列表、自定义变量、上传记录、收集进度，但不能管理账号"}
-                            </p>
+                            <Label htmlFor="accountRole">账号角色</Label>
+                            <Select value={accountForm.role} onValueChange={(role) => setAccountForm({ ...accountForm, role })}>
+                              <SelectTrigger id="accountRole"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="sub">普通子账号（仅查看记录和进度）</SelectItem>
+                                <SelectItem value="sub_admin">子管理员（除账号管理外的全部权限）</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         )}
                       </div>
@@ -2394,7 +2323,7 @@ export default function AdminPage() {
                           <TableCell className="font-medium">{account.username}</TableCell>
                           <TableCell>{account.display_name || "-"}</TableCell>
                           <TableCell>
-                            <Badge variant={account.role === "main" ? "default" : account.role === "sub_admin" ? "outline" : "secondary"}>
+                            <Badge variant={account.role === "main" ? "default" : "secondary"}>
                               {account.role === "main" ? "主账号" : account.role === "sub_admin" ? "子管理员" : "子账号"}
                             </Badge>
                           </TableCell>
@@ -2508,7 +2437,7 @@ export default function AdminPage() {
   );
 }
 
-// 文件收集进度表格组件
+// 数据文件收集进度表格组件
 function CollectionProgressTable() {
   const [progressData, setProgressData] = useState<Array<{
     shopId: string;
@@ -2619,45 +2548,42 @@ function CollectionProgressTable() {
         setAvailableManagers(allManagers);
       }
     } catch (err) {
-      console.error("加载收集进度失败:", err);
+      console.error("加载数据文件收集进度失败:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  // 联动计算逻辑
+  // 联动计算逻辑：生成某个多选框的候选项时忽略该字段自身，
+  // 保证同字段内可以继续多选；其他字段仍保持 AND 联动。
   useEffect(() => {
     if (progressData.length === 0) return;
-    
-    // 用站点/平台/负责人筛选数据（用于计算联动后的选项）
-    let linkedData = progressData;
 
-    if (filterSite.length > 0) {
-      linkedData = linkedData.filter((item) => filterSite.includes(item.shopSite));
-    }
-    if (filterPlatform.length > 0) {
-      linkedData = linkedData.filter((item) => filterPlatform.includes(item.shopPlatform));
-    }
-    if (filterManager.length > 0) {
-      linkedData = linkedData.filter((item) => filterManager.includes(item.shopManager || ""));
-    }
-    if (filterUploaded) {
-      if (filterUploaded === "yes") {
-        linkedData = linkedData.filter((item) => item.uploadCount > 0);
-      } else if (filterUploaded === "no") {
-        linkedData = linkedData.filter((item) => item.uploadCount === 0);
+    type ProgressFacet = "site" | "platform" | "manager";
+    const rowsForFacet = (ignoredFacet: ProgressFacet) => progressData.filter((item) => {
+      if (ignoredFacet !== "site" && filterSite.length > 0 && !filterSite.includes(item.shopSite)) {
+        return false;
       }
-    }
+      if (ignoredFacet !== "platform" && filterPlatform.length > 0 && !filterPlatform.includes(item.shopPlatform)) {
+        return false;
+      }
+      if (ignoredFacet !== "manager" && filterManager.length > 0 && !filterManager.includes(item.shopManager || "")) {
+        return false;
+      }
+      if (filterUploaded === "yes" && item.uploadCount === 0) return false;
+      if (filterUploaded === "no" && item.uploadCount > 0) return false;
+      return true;
+    });
 
-    // 根据联动后的数据，更新各筛选框的选项
-    const platformsInLinked = [...new Set(linkedData.map((d) => d.shopPlatform).filter(Boolean))].sort();
-    setAvailablePlatforms(platformsInLinked);
-
-    const sitesInLinked = [...new Set(linkedData.map((d) => d.shopSite).filter(Boolean))].sort();
-    setAvailableSites(sitesInLinked);
-
-    const managersInLinked = [...new Set(linkedData.map((d) => d.shopManager).filter(Boolean) as string[])].sort();
-    setAvailableManagers(managersInLinked);
+    setAvailablePlatforms([
+      ...new Set(rowsForFacet("platform").map((item) => item.shopPlatform).filter(Boolean)),
+    ].sort());
+    setAvailableSites([
+      ...new Set(rowsForFacet("site").map((item) => item.shopSite).filter(Boolean)),
+    ].sort());
+    setAvailableManagers([
+      ...new Set(rowsForFacet("manager").map((item) => item.shopManager).filter(Boolean) as string[]),
+    ].sort());
   }, [progressData, filterSite, filterPlatform, filterManager, filterUploaded]);
 
   const formatDate = (dateStr: string | null) => {
@@ -2774,7 +2700,7 @@ function CollectionProgressTable() {
 
       {filteredData.length === 0 ? (
         <div className="text-center py-8 text-slate-500">
-          暂无收集进度数据。请确保已配置店铺的保存类型。
+          暂无数据文件收集进度数据。请确保已配置店铺的保存类型。
         </div>
       ) : (
         <div className="overflow-x-auto">

@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { requirePermission } from "@/lib/rbac";
 
 // 获取所有店铺
 export async function GET(request: NextRequest) {
+  const activeOnly = new URL(request.url).searchParams.get("active") === "true";
+  if (!activeOnly) {
+    const auth = await requirePermission(request, "files:view");
+    if (auth.error) return auth.error;
+  }
   try {
     const { searchParams } = new URL(request.url);
-    const activeOnly = searchParams.get("active") === "true";
 
     const supabase = getSupabaseClient();
     let query = supabase.from("shops").select("*").order("created_at", { ascending: false });
@@ -31,6 +36,8 @@ export async function GET(request: NextRequest) {
 
 // 批量创建店铺（从Excel导入）或单个添加
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, "shops:manage");
+  if (auth.error) return auth.error;
   try {
     const body = await request.json();
     const { shops } = body;
@@ -94,6 +101,8 @@ export async function POST(request: NextRequest) {
 
 // 更新店铺
 export async function PUT(request: NextRequest) {
+  const auth = await requirePermission(request, "shops:manage");
+  if (auth.error) return auth.error;
   try {
     const body = await request.json();
     const { id, name, site, platform, description, is_active, export_type, manager } = body;
@@ -134,6 +143,8 @@ export async function PUT(request: NextRequest) {
 
 // 删除店铺
 export async function DELETE(request: NextRequest) {
+  const auth = await requirePermission(request, "shops:manage");
+  if (auth.error) return auth.error;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");

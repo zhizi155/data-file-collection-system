@@ -1,352 +1,272 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
-import { smartExtractDateRange } from "@/lib/date-utils";
+import { requirePermission } from "@/lib/rbac";
+import { logAudit } from "@/lib/audit";
+import {
+  buildNullableOrExpression,
+  FILE_FILTER_FACETS,
+  FileFilterFacet,
+  FileFilterInput,
+  FileFilterParams,
+  matchesNullableSelection,
+  normalizeFileFilters,
+  withoutFileFilterFacet,
+} from "@/lib/query-builder";
 
-// 获取上传文件记录
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const shopId = searchParams.get("shopId");
-    const platform = searchParams.get("platform");
-    const site = searchParams.get("site");
-    const dateRange = searchParams.get("dateRange"); // 日期区间文本筛选
-    const displayName = searchParams.get("displayName"); // 保存文件名筛选
-    const limit = parseInt(searchParams.get("limit") || "100");
-    const offset = parseInt(searchParams.get("offset") || "0");
-    const getAll = searchParams.get("getAll") === "true"; // 是否获取所有数据（用于联动选项计算）
-
-    const supabase = getSupabaseClient();
-
-    // 先获取需要筛选的店铺ID列表
-    let filterShopIds: string[] | null = null;
-    // 解析逗号分隔的多选值
-    const shopIdList = shopId ? shopId.split(",").filter(Boolean) : [];
-    const platformList = platform ? platform.split(",").filter(Boolean) : [];
-    const siteList = site ? site.split(",").filter(Boolean) : [];
-    
-    if (platformList.length > 0 || siteList.length > 0) {
-      let shopQuery = supabase.from("shops").select("id");
-      if (platformList.length > 0) {
-        shopQuery = shopQuery.in("platform", platformList);
-      }
-      if (siteList.length > 0) {
-        shopQuery = shopQuery.in("site", siteList);
-      }
-      const { data: filteredShops } = await shopQuery;
-      if (filteredShops && filteredShops.length > 0) {
-        filterShopIds = filteredShops.map((s) => s.id);
-      } else if (platformList.length > 0 || siteList.length > 0) {
-        // 如果有筛选条件但没找到店铺，返回空结果
-        return NextResponse.json({
-          success: true,
-          data: [],
-          total: 0,
-        });
-      }
-    }
-
-    // 解析筛选参数
-    const dateRangeList = dateRange ? dateRange.split(",").filter(Boolean) : [];
-    const includeNone = dateRangeList.includes("__NONE__");
-    const filteredDateRanges = dateRangeList.filter((dr) => dr !== "__NONE__");
-    
-    const displayNameList = displayName ? displayName.split(",").filter(Boolean) : [];
-    const includeNoneDisplay = displayNameList.includes("__NONE__");
-    const filteredDisplayNames = displayNameList.filter((dn) => dn !== "__NONE__");
-
-    // 构建店铺筛选后的查询
-    let shopFilteredQuery = supabase
-      .from("uploaded_files")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    // 应用店铺筛选条件
-    if (shopIdList.length > 0) {
-      shopFilteredQuery = shopFilteredQuery.in("shop_id", shopIdList);
-    } else if (filterShopIds && filterShopIds.length > 0) {
-      shopFilteredQuery = shopFilteredQuery.in("shop_id", filterShopIds);
-    }
-
-    // 获取店铺筛选后的所有数据（用于内存筛选）
-    const { data: shopFilteredData, error } = await shopFilteredQuery;
-
-    if (error) {
-      return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
-    }
-
-    // 获取店铺信息
-    const allShopIds = [...new Set(shopFilteredData?.map((f) => f.shop_id).filter(Boolean) || [])];
-    const shopsMap: Record<string, { name: string; site: string; platform: string }> = {};
-
-    if (allShopIds.length > 0) {
-      const { data: shopsData } = await supabase
-        .from("shops")
-        .select("id, name, site, platform")
-        .in("id", allShopIds);
-
-      if (shopsData) {
-        shopsData.forEach((shop) => {
-          shopsMap[shop.id] = {
-            name: shop.name,
-            site: shop.site,
-            platform: shop.platform,
-          };
-        });
-      }
-    }
-
-    // 合并数据并添加日期区间识别
-    let filesWithShops = shopFilteredData?.map((file) => ({
-      ...file,
-      shops: file.shop_id ? shopsMap[file.shop_id] || null : null,
-      date_range: smartExtractDateRange(file.original_name),
-    })) || [];
-
-    // 获取店铺筛选后的总数
-    let filteredTotal = filesWithShops.length;
-
-    // 应用日期区间和保存文件名筛选（在内存中筛选，因为 date_range 是计算字段）
-    // 注意：getAll=true 时不应用这些筛选，用于计算联动选项
-    if (!getAll) {
-      // 日期区间文本筛选
-      if (dateRangeList.length > 0) {
-        filesWithShops = filesWithShops.filter((file) => {
-          // 只有"未识别"选项：筛选 date_range 为 null 的记录
-          if (includeNone && filteredDateRanges.length === 0) {
-            return file.date_range === null;
-          }
-          // 既有"未识别"又有其他筛选条件
-          if (includeNone && filteredDateRanges.length > 0) {
-            // 文件必须：date_range 为 null 或 匹配其他筛选条件之一
-            if (file.date_range === null) return true;
-            return filteredDateRanges.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()));
-          }
-          // 只有其他筛选条件（不含"未识别"）
-          if (filteredDateRanges.length > 0) {
-            return filteredDateRanges.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()));
-          }
-          return true;
-        });
-      }
-
-      // 保存文件名筛选
-      if (displayNameList.length > 0) {
-        filesWithShops = filesWithShops.filter((file) => {
-          const fileDisplayName = file.display_name || null;
-          // 只有"未识别"选项：筛选 display_name 为 null 的记录
-          if (includeNoneDisplay && filteredDisplayNames.length === 0) {
-            return fileDisplayName === null;
-          }
-          // 既有"未识别"又有其他筛选条件
-          if (includeNoneDisplay && filteredDisplayNames.length > 0) {
-            if (fileDisplayName === null) return true;
-            return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
-          }
-          // 只有其他筛选条件（不含"未识别"）
-          if (filteredDisplayNames.length > 0) {
-            return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
-          }
-          return true;
-        });
-      }
-
-      // 更新筛选后的总数
-      filteredTotal = filesWithShops.length;
-
-      // 应用分页（先筛选后分页）
-      filesWithShops = filesWithShops.slice(offset, offset + limit);
-    }
-
-    if (getAll) {
-      // 获取所有数据时返回，不带分页信息
-      return NextResponse.json({
-        success: true,
-        data: filesWithShops,
-      });
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: filesWithShops,
-      total: filteredTotal,
-    });
-  } catch (error) {
-    console.error("获取上传文件记录失败:", error);
-    return NextResponse.json(
-      { error: `服务器错误: ${error instanceof Error ? error.message : "未知错误"}` },
-      { status: 500 }
-    );
-  }
+interface UploadedFileRow {
+  id: string;
+  original_name: string;
+  stored_key: string;
+  display_name: string | null;
+  file_size: string;
+  mime_type: string | null;
+  rule_id: string | null;
+  shop_id: string | null;
+  export_type: string | null;
+  created_at: string;
+  version: number | null;
+  is_current: boolean | null;
+  is_deleted: boolean | null;
+  deleted_at: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  period_label: string | null;
+  parse_status: string | null;
 }
 
-// POST 方法：通过 body 传递筛选参数（解决 URL 过长问题）
+interface ShopRow {
+  id: string;
+  name: string;
+  site: string;
+  platform: string;
+  manager: string | null;
+}
+
+interface FilesRequestBody extends FileFilterInput {
+  limit?: unknown;
+  offset?: unknown;
+  includeOptions?: unknown;
+}
+
+function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, Math.trunc(parsed))) : fallback;
+}
+
+function hasShopFilters(filters: FileFilterParams): boolean {
+  return filters.shopIds.length > 0
+    || filters.platforms.length > 0
+    || filters.sites.length > 0
+    || filters.managers.length > 0;
+}
+
+async function resolveMatchingShops(filters: FileFilterParams): Promise<ShopRow[]> {
+  const supabase = getSupabaseClient();
+  let query = supabase.from("shops").select("id, name, site, platform, manager");
+  if (filters.shopIds.length > 0) query = query.in("id", filters.shopIds);
+  if (filters.platforms.length > 0) query = query.in("platform", filters.platforms);
+  if (filters.sites.length > 0) query = query.in("site", filters.sites);
+  if (filters.managers.length > 0) query = query.in("manager", filters.managers);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ShopRow[];
+}
+
+async function executeFileQuery(
+  filters: FileFilterParams,
+  matchingShopIds: string[],
+  offset?: number,
+  limit?: number,
+) {
+  const supabase = getSupabaseClient();
+  let query = supabase.from("uploaded_files").select("*", { count: "exact" });
+  if (hasShopFilters(filters)) query = query.in("shop_id", matchingShopIds);
+  if (filters.exportTypes.length > 0) query = query.in("export_type", filters.exportTypes);
+
+  const displayExpression = buildNullableOrExpression("display_name", filters.displayNames);
+  if (displayExpression) query = query.or(displayExpression);
+  if (filters.displayNameContains) query = query.ilike("display_name", `%${filters.displayNameContains}%`);
+
+  const periodExpression = buildNullableOrExpression("period_label", filters.periodLabels);
+  if (periodExpression) query = query.or(periodExpression);
+  if (filters.periodStart) query = query.gte("period_start", filters.periodStart);
+  if (filters.periodEnd) query = query.lte("period_end", filters.periodEnd);
+
+  if (filters.view === "current") {
+    query = query.eq("is_current", true).eq("is_deleted", false);
+  } else if (filters.view === "history") {
+    query = query.eq("is_deleted", false);
+  } else if (filters.view === "trash") {
+    query = query.eq("is_deleted", true);
+  }
+
+  query = query.order("created_at", { ascending: false });
+  if (offset !== undefined && limit !== undefined) {
+    query = query.range(offset, offset + limit - 1);
+  } else {
+    query = query.limit(5000);
+  }
+  return query;
+}
+
+function mapWithShops(files: UploadedFileRow[], shops: ShopRow[]) {
+  const shopsById = new Map(shops.map((shop) => [shop.id, shop]));
+  return files.map((file) => ({
+    ...file,
+    date_range: file.period_label,
+    shops: file.shop_id ? shopsById.get(file.shop_id) ?? null : null,
+  }));
+}
+
+function matchesStringSelection(value: string | null | undefined, selected: string[]): boolean {
+  return selected.length === 0 || (Boolean(value) && selected.includes(value as string));
+}
+
+function matchesFilterOptionRow(
+  row: UploadedFileRow,
+  shop: ShopRow | undefined,
+  filters: FileFilterParams,
+): boolean {
+  return matchesStringSelection(row.shop_id, filters.shopIds)
+    && matchesStringSelection(shop?.platform, filters.platforms)
+    && matchesStringSelection(shop?.site, filters.sites)
+    && matchesNullableSelection(shop?.manager, filters.managers)
+    && matchesNullableSelection(row.export_type, filters.exportTypes)
+    && matchesNullableSelection(row.display_name, filters.displayNames)
+    && matchesNullableSelection(row.period_label, filters.periodLabels);
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
+}
+
+async function buildFilterOptions(filters: FileFilterParams) {
+  const supabase = getSupabaseClient();
+  const baseFilters = FILE_FILTER_FACETS.reduce(
+    (current, facet) => withoutFileFilterFacet(current, facet),
+    filters,
+  );
+  const [fileResult, shopResult] = await Promise.all([
+    executeFileQuery(baseFilters, []),
+    supabase.from("shops").select("id, name, site, platform, manager"),
+  ]);
+  if (fileResult.error) throw fileResult.error;
+  if (shopResult.error) throw shopResult.error;
+
+  const rows = (fileResult.data ?? []) as UploadedFileRow[];
+  const allShops = (shopResult.data ?? []) as ShopRow[];
+  const shopsById = new Map(allShops.map((shop) => [shop.id, shop]));
+  const rowsForFacet = (facet: FileFilterFacet) => {
+    const facetFilters = withoutFileFilterFacet(filters, facet);
+    return rows.filter((row) => matchesFilterOptionRow(
+      row,
+      row.shop_id ? shopsById.get(row.shop_id) : undefined,
+      facetFilters,
+    ));
+  };
+
+  const shopOptionIds = new Set(rowsForFacet("shopIds").map((row) => row.shop_id).filter(Boolean));
+  const shops = allShops
+    .filter((shop) => shopOptionIds.has(shop.id))
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  const platformRows = rowsForFacet("platforms");
+  const siteRows = rowsForFacet("sites");
+  const managerRows = rowsForFacet("managers");
+  const exportTypeRows = rowsForFacet("exportTypes");
+  const displayNameRows = rowsForFacet("displayNames");
+  const periodLabelRows = rowsForFacet("periodLabels");
+
+  return {
+    shops,
+    platforms: uniqueStrings(platformRows.map((row) => row.shop_id ? shopsById.get(row.shop_id)?.platform : null)),
+    sites: uniqueStrings(siteRows.map((row) => row.shop_id ? shopsById.get(row.shop_id)?.site : null)),
+    managers: uniqueStrings(managerRows.map((row) => row.shop_id ? shopsById.get(row.shop_id)?.manager : null)),
+    exportTypes: uniqueStrings(exportTypeRows.map((row) => row.export_type)),
+    displayNames: uniqueStrings(displayNameRows.map((row) => row.display_name)),
+    periodLabels: uniqueStrings(periodLabelRows.map((row) => row.period_label)).reverse(),
+  };
+}
+
+async function handleFilesRequest(request: NextRequest, input: FilesRequestBody) {
+  const auth = await requirePermission(request, "files:view");
+  if (auth.error) return auth.error;
+  const limit = boundedInteger(input.limit, 20, 1, 200);
+  const offset = boundedInteger(input.offset, 0, 0, 1_000_000);
+  const filters = normalizeFileFilters(input);
+  const matchingShops = await resolveMatchingShops(filters);
+  const matchingShopIds = matchingShops.map((shop) => shop.id);
+
+  let rows: UploadedFileRow[] = [];
+  let total = 0;
+  if (!hasShopFilters(filters) || matchingShopIds.length > 0) {
+    const { data, error, count } = await executeFileQuery(filters, matchingShopIds, offset, limit);
+    if (error) return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
+    rows = (data ?? []) as UploadedFileRow[];
+    total = count ?? 0;
+  }
+  const pageShopIds = [...new Set(rows.map((row) => row.shop_id).filter((id): id is string => Boolean(id)))];
+  const supabase = getSupabaseClient();
+  let pageShops: ShopRow[] = [];
+  if (pageShopIds.length > 0) {
+    const { data: shopData } = await supabase
+      .from("shops")
+      .select("id, name, site, platform, manager")
+      .in("id", pageShopIds);
+    pageShops = (shopData ?? []) as ShopRow[];
+  }
+
+  const options = input.includeOptions === false
+    ? undefined
+    : await buildFilterOptions(filters);
+  return NextResponse.json({
+    success: true,
+    data: mapWithShops(rows, pageShops),
+    total,
+    limit,
+    offset,
+    options,
+  });
+}
+
+export async function GET(request: NextRequest) {
+  const input: FilesRequestBody = Object.fromEntries(new URL(request.url).searchParams.entries());
+  return handleFilesRequest(request, input);
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { shopId, platform, site, dateRange, displayName, limit = 100, offset = 0, getAll = false } = body;
-
-    const supabase = getSupabaseClient();
-
-    // 解析参数（支持逗号分隔的字符串或数组）
-    const shopIdList = Array.isArray(shopId) ? shopId : (shopId ? String(shopId).split(",").filter(Boolean) : []);
-    const platformList = Array.isArray(platform) ? platform : (platform ? String(platform).split(",").filter(Boolean) : []);
-    const siteList = Array.isArray(site) ? site : (site ? String(site).split(",").filter(Boolean) : []);
-    const dateRangeList = dateRange ? (Array.isArray(dateRange) ? dateRange : String(dateRange).split(",").filter(Boolean)) : [];
-    const displayNameList = displayName ? (Array.isArray(displayName) ? displayName : String(displayName).split(",").filter(Boolean)) : [];
-
-    // 先获取需要筛选的店铺ID列表
-    let filterShopIds: string[] | null = null;
-
-    if (platformList.length > 0 || siteList.length > 0) {
-      let shopQuery = supabase.from("shops").select("id");
-      if (platformList.length > 0) {
-        shopQuery = shopQuery.in("platform", platformList);
-      }
-      if (siteList.length > 0) {
-        shopQuery = shopQuery.in("site", siteList);
-      }
-      const { data: filteredShops } = await shopQuery;
-      if (filteredShops && filteredShops.length > 0) {
-        filterShopIds = filteredShops.map((s) => s.id);
-      } else if (platformList.length > 0 || siteList.length > 0) {
-        return NextResponse.json({ success: true, data: [], total: 0 });
-      }
-    }
-
-    // 构建店铺筛选后的查询
-    let shopFilteredQuery = supabase
-      .from("uploaded_files")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (shopIdList.length > 0) {
-      shopFilteredQuery = shopFilteredQuery.in("shop_id", shopIdList);
-    } else if (filterShopIds && filterShopIds.length > 0) {
-      shopFilteredQuery = shopFilteredQuery.in("shop_id", filterShopIds);
-    }
-
-    const { data: shopFilteredData, error } = await shopFilteredQuery;
-
-    if (error) {
-      return NextResponse.json({ error: `查询失败: ${error.message}` }, { status: 500 });
-    }
-
-    // 获取店铺信息
-    const allShopIds = [...new Set(shopFilteredData?.map((f) => f.shop_id).filter(Boolean) || [])];
-    const shopsMap: Record<string, { name: string; site: string; platform: string }> = {};
-
-    if (allShopIds.length > 0) {
-      const { data: shopsData } = await supabase
-        .from("shops")
-        .select("id, name, site, platform")
-        .in("id", allShopIds);
-
-      if (shopsData) {
-        shopsData.forEach((shop) => {
-          shopsMap[shop.id] = {
-            name: shop.name,
-            site: shop.site,
-            platform: shop.platform,
-          };
-        });
-      }
-    }
-
-    // 合并数据并添加日期区间识别
-    let filesWithShops = shopFilteredData?.map((file) => ({
-      ...file,
-      shops: file.shop_id ? shopsMap[file.shop_id] || null : null,
-      date_range: smartExtractDateRange(file.original_name),
-    })) || [];
-
-    let filteredTotal = filesWithShops.length;
-
-    // 应用日期区间和保存文件名筛选
-    if (!getAll) {
-      const includeNone = dateRangeList.includes("__NONE__");
-      const filteredDateRanges = dateRangeList.filter((dr) => dr !== "__NONE__");
-      const includeNoneDisplay = displayNameList.includes("__NONE__");
-      const filteredDisplayNames = displayNameList.filter((dn) => dn !== "__NONE__");
-
-      if (dateRangeList.length > 0) {
-        filesWithShops = filesWithShops.filter((file) => {
-          if (includeNone && filteredDateRanges.length === 0) return file.date_range === null;
-          if (includeNone && filteredDateRanges.length > 0) {
-            if (file.date_range === null) return true;
-            return filteredDateRanges.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()));
-          }
-          return filteredDateRanges.some((dr) => file.date_range?.toLowerCase().includes(dr.toLowerCase()));
-        });
-      }
-
-      if (displayNameList.length > 0) {
-        filesWithShops = filesWithShops.filter((file) => {
-          const fileDisplayName = file.display_name || null;
-          if (includeNoneDisplay && filteredDisplayNames.length === 0) return fileDisplayName === null;
-          if (includeNoneDisplay && filteredDisplayNames.length > 0) {
-            if (fileDisplayName === null) return true;
-            return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
-          }
-          return filteredDisplayNames.some((dn) => fileDisplayName?.toLowerCase().includes(dn.toLowerCase()));
-        });
-      }
-
-      filteredTotal = filesWithShops.length;
-      filesWithShops = filesWithShops.slice(offset, offset + limit);
-    }
-
-    if (getAll) {
-      return NextResponse.json({ success: true, data: filesWithShops });
-    }
-
-    return NextResponse.json({ success: true, data: filesWithShops, total: filteredTotal });
-  } catch (error) {
-    console.error("获取上传文件记录失败:", error);
-    return NextResponse.json(
-      { error: `服务器错误: ${error instanceof Error ? error.message : "未知错误"}` },
-      { status: 500 }
-    );
+    return handleFilesRequest(request, await request.json() as FilesRequestBody);
+  } catch {
+    return NextResponse.json({ error: "请求参数格式错误" }, { status: 400 });
   }
 }
 
-// 删除上传文件记录
 export async function DELETE(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
-    const ids = searchParams.get("ids"); // 批量删除，多个ID用逗号分隔
+  const auth = await requirePermission(request, "files:delete");
+  if (auth.error) return auth.error;
+  const { searchParams } = new URL(request.url);
+  const ids = [...new Set([
+    ...searchParams.getAll("id"),
+    ...(searchParams.get("ids")?.split(",") ?? []),
+  ].filter(Boolean))];
+  if (ids.length === 0) return NextResponse.json({ error: "缺少文件ID" }, { status: 400 });
 
-    if (!id && !ids) {
-      return NextResponse.json({ error: "缺少文件ID参数" }, { status: 400 });
-    }
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from("uploaded_files")
+    .update({ is_deleted: true, deleted_at: new Date().toISOString(), deleted_by: auth.session!.userId })
+    .in("id", ids)
+    .eq("is_deleted", false);
+  if (error) return NextResponse.json({ error: `移入回收站失败: ${error.message}` }, { status: 500 });
 
-    const supabase = getSupabaseClient();
-
-    let error;
-    if (ids) {
-      // 批量删除
-      const idArray = ids.split(",").filter(Boolean);
-      if (idArray.length === 0) {
-        return NextResponse.json({ error: "没有有效的文件ID" }, { status: 400 });
-      }
-      const { error: deleteError } = await supabase.from("uploaded_files").delete().in("id", idArray);
-      error = deleteError;
-    } else if (id) {
-      // 单个删除
-      const { error: deleteError } = await supabase.from("uploaded_files").delete().eq("id", id);
-      error = deleteError;
-    }
-
-    if (error) {
-      return NextResponse.json({ error: `删除失败: ${error.message}` }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("删除文件记录失败:", error);
-    return NextResponse.json(
-      { error: `服务器错误: ${error instanceof Error ? error.message : "未知错误"}` },
-      { status: 500 }
-    );
-  }
+  await logAudit(supabase, {
+    eventType: "file.delete",
+    userId: auth.session!.userId,
+    username: auth.session!.username,
+    targetType: "file",
+    targetId: ids.join(","),
+    details: { fileCount: ids.length, permanent: false },
+    result: "success",
+  });
+  return NextResponse.json({ success: true, deletedCount: ids.length, message: "已移入回收站" });
 }

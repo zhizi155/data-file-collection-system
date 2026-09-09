@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-
-const storage = new S3Storage({
-  endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
-  accessKey: "",
-  secretKey: "",
-  bucketName: process.env.COZE_BUCKET_NAME,
-  region: "cn-beijing",
-});
+import {
+  CreateMultipartUploadCommand,
+  PutObjectCommand,
+  S3Client,
+  UploadPartCommand,
+} from "@aws-sdk/client-s3";
+import crypto from "crypto";
+import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, validateUploadCandidate } from "@/lib/upload-policy";
 
 // 创建S3客户端用于生成PUT预签名URL
 function createS3Client() {
@@ -156,14 +154,58 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 获取命名后的文件名
-    const newFileName = await getNamingPattern(fileName, shopId, exportType);
-    const objectKey = `uploads/${newFileName}`;
-
-    // 使用AWS SDK生成PUT预签名URL
-    const s3Client = createS3Client();
+    const supabase = getSupabaseClient();
+    const { data: configRows } = await supabase.from("upload_config").select("key, value");
+    const policy = configRows ? mergeUploadPolicy(configRows) : DEFAULT_UPLOAD_POLICY;
     const contentType = body.contentType || "application/octet-stream";
-    
+    const validationErrors = validateUploadCandidate({ fileName, fileSize: Number(fileSize), contentType }, policy);
+    if (validationErrors.length > 0) {
+      return NextResponse.json({ error: validationErrors.join("；") }, { status: 400 });
+    }
+
+    // 每次上传都使用不可变 key，避免新版本覆盖历史对象。
+    const newFileName = await getNamingPattern(fileName, shopId, exportType);
+    const safeShop = String(shopId || "unassigned").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const objectKey = `uploads/${safeShop}/${Date.now()}_${crypto.randomUUID()}_${newFileName}`;
+
+    const s3Client = createS3Client();
+    const displayName = exportType
+      ? `${exportType}${fileName.includes(".") ? `.${fileName.split(".").pop()}` : ""}`
+      : newFileName;
+
+    if (Number(fileSize) > policy.largeFileThreshold) {
+      const createResult = await s3Client.send(new CreateMultipartUploadCommand({
+        Bucket: process.env.COZE_BUCKET_NAME,
+        Key: objectKey,
+        ContentType: contentType,
+      }));
+      if (!createResult.UploadId) throw new Error("对象存储未返回 multipart uploadId");
+      const totalParts = Math.ceil(Number(fileSize) / policy.multipartPartSize);
+      if (totalParts > 10_000) {
+        return NextResponse.json({ error: "文件分片数量超过对象存储限制" }, { status: 400 });
+      }
+      const parts = await Promise.all(Array.from({ length: totalParts }, async (_, index) => {
+        const partNumber = index + 1;
+        const uploadUrl = await getSignedUrl(s3Client, new UploadPartCommand({
+          Bucket: process.env.COZE_BUCKET_NAME,
+          Key: objectKey,
+          UploadId: createResult.UploadId,
+          PartNumber: partNumber,
+        }), { expiresIn: 3600 });
+        return { partNumber, uploadUrl };
+      }));
+      return NextResponse.json({
+        success: true,
+        uploadMode: "multipart",
+        uploadId: createResult.UploadId,
+        objectKey,
+        newFileName: displayName,
+        partSize: policy.multipartPartSize,
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        parts,
+      });
+    }
+
     const command = new PutObjectCommand({
       Bucket: process.env.COZE_BUCKET_NAME,
       Key: objectKey,
@@ -175,24 +217,13 @@ export async function POST(request: NextRequest) {
       expiresIn: 3600, // 1小时
     });
 
-    // 生成下载用的预签名URL（使用SDK方法）
-    const downloadUrl = await storage.generatePresignedUrl({
-      key: objectKey,
-      expireTime: 86400 * 7,
-    });
-
-    // 返回中文显示名（用户选择的保存类型）而不是 SDK 转换后的拼音
-    const ext = fileName.split(".").pop() || "";
-    const displayName = exportType 
-      ? `${exportType}${ext ? '.' + ext : ''}`
-      : newFileName;
-
     return NextResponse.json({
       success: true,
-      uploadUrl: uploadUrl,
-      downloadUrl: downloadUrl,
-      objectKey: objectKey,
-      newFileName: displayName, // 返回中文显示名
+      uploadMode: "single",
+      uploadUrl,
+      objectKey,
+      newFileName: displayName,
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
     });
   } catch (error) {
     console.error("生成预签名URL失败:", error);

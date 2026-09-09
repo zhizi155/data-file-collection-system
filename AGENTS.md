@@ -45,7 +45,7 @@
 └── tsconfig.json           # TypeScript 配置
 ```
 
-## 文件收集系统功能说明
+## 数据文件收集系统功能说明
 
 ### 页面路由
 - `/` - 文件上传主页（用户上传文件）
@@ -93,20 +93,6 @@
 - `uploaded_files` - 上传文件记录表
 - `shops` - 店铺列表表（支持从 Excel 导入）
 - `custom_variables` - 自定义变量表
-- `admin_users` - 管理员账号表（支持多角色）
-
-### 账号角色权限
-| 角色 | 标识 | 权限说明 |
-|------|------|----------|
-| 主账号 | `main` | 拥有所有权限，包括账号管理 |
-| 子管理员 | `sub_admin` | 拥有大部分管理权限（命名规则、店铺列表、自定义变量、上传记录、收集进度），但不能管理账号 |
-| 子账号 | `sub` | 仅能查看上传记录和收集进度 |
-
-### API 接口（账号管理）
-- `GET /api/admin-users` - 获取所有管理员账号
-- `POST /api/admin-users` - 创建管理员账号（需指定 role: main/sub/sub_admin）
-- `PUT /api/admin-users` - 更新管理员账号
-- `DELETE /api/admin-users?id=xxx` - 删除管理员账号
 
 ### 大文件处理机制
 - **阈值**: 文件 > 50MB 被视为大文件
