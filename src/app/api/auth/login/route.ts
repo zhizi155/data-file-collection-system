@@ -49,16 +49,22 @@ async function recordLoginAttempt(username: string, ipAddress: string, success: 
 }
 
 // 升级明文密码为哈希
-async function upgradePasswordHash(userId: string, plainPassword: string): Promise<void> {
+async function upgradePasswordHash(userId: string, plainPassword: string): Promise<string | null> {
   try {
     const supabase = getSupabaseClient()
     const hashedPassword = await hashPassword(plainPassword)
-    await supabase
+    const { error } = await supabase
       .from("admin_users")
       .update({ password_hash: hashedPassword, password: null })
       .eq("id", userId)
+    if (error) {
+      console.error("升级密码哈希失败:", error)
+      return null
+    }
+    return hashedPassword
   } catch (error) {
     console.error("升级密码哈希失败:", error)
+    return null
   }
 }
 
@@ -133,8 +139,10 @@ export async function POST(request: NextRequest) {
     }
 
     // 如果需要升级密码哈希
+    let sessionSigningSecret = passwordToVerify
     if (needsUpgrade && isPlainTextPassword(passwordToVerify)) {
-      await upgradePasswordHash(data.id, password)
+      const upgradedHash = await upgradePasswordHash(data.id, password)
+      if (upgradedHash) sessionSigningSecret = upgradedHash
     }
 
     // 检查是否需要强制修改密码（弱默认密码）
@@ -152,7 +160,13 @@ export async function POST(request: NextRequest) {
       .eq("id", data.id)
 
     // 创建会话
-    const token = await createSession(data.id, data.username, data.role, data.display_name)
+    const token = await createSession(
+      data.id,
+      data.username,
+      data.role,
+      data.display_name || data.username,
+      sessionSigningSecret,
+    )
 
     // 记录成功登录
     await recordLoginAttempt(username, ipAddress, true)
