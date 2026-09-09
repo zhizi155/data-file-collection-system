@@ -537,6 +537,30 @@ export default function AdminPage() {
     }
   }, []);
 
+  const downloadFilesDirectly = async (fileIds: string[]) => {
+    setDownloadStatus(`正在打包 ${fileIds.length} 个文件…`);
+    const response = await fetch("/api/files/batch-download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ fileIds }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.error || "兼容下载失败");
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `批量下载_${new Date().toISOString().split("T")[0]}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     if (activeTab !== "files") return;
     loadExportJobs();
@@ -560,6 +584,14 @@ export default function AdminPage() {
         body: JSON.stringify({ fileIds: uniqueIds, includeHistory: fileView === "history" }),
       });
       const data = await response.json();
+      if (response.status === 409 && data.fallbackEndpoint) {
+        await downloadFilesDirectly(uniqueIds);
+        setDownloadStatus("文件已打包下载");
+        setSelectedFiles(new Set());
+        setDownloadModalOpen(false);
+        setPageRangeModalOpen(false);
+        return;
+      }
       if (!response.ok || !data.success) throw new Error(data.error || "创建任务失败");
       setDownloadStatus("任务已创建，可离开页面，完成后回来下载");
       setSelectedFiles(new Set());
