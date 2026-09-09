@@ -3,6 +3,7 @@ import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { getSessionUser } from "@/lib/session";
 import { hasPermission } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
+import { getUploadedFilesSchemaMode } from "@/lib/database-capabilities";
 
 // 软删除文件（移到回收站）
 export async function DELETE(request: NextRequest) {
@@ -31,6 +32,12 @@ export async function DELETE(request: NextRequest) {
 
     const supabase = getSupabaseClient();
     const fileIds = id ? [id] : ids!;
+
+    if (!permanent && await getUploadedFilesSchemaMode(supabase) === "legacy") {
+      return NextResponse.json({
+        error: "当前数据库仍是旧版结构，暂不支持移入回收站；请先完成数据库升级。",
+      }, { status: 409 });
+    }
 
     if (permanent) {
       // 永久删除（仅主账号）
@@ -167,6 +174,11 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "开始日期不能晚于结束日期" }, { status: 400 });
     }
     const supabase = getSupabaseClient();
+    if (await getUploadedFilesSchemaMode(supabase) === "legacy") {
+      return NextResponse.json({
+        error: "当前数据库仍是旧版结构，暂不支持修正归属期间；请先完成数据库升级。",
+      }, { status: 409 });
+    }
     const { error } = await supabase
       .from("uploaded_files")
       .update({
@@ -217,6 +229,12 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseClient();
+
+    if (await getUploadedFilesSchemaMode(supabase) === "legacy") {
+      return NextResponse.json({
+        error: "当前数据库仍是旧版结构，暂不支持从回收站恢复；请先完成数据库升级。",
+      }, { status: 409 });
+    }
 
     // 恢复文件
     const { error } = await supabase
