@@ -61,7 +61,7 @@ interface UploadItem {
 
 interface PresignedPart {
   partNumber: number;
-  uploadUrl: string;
+  uploadUrl?: string;
 }
 
 interface PresignResponse {
@@ -109,27 +109,30 @@ function statusLabel(status: UploadStatus): string {
   }[status];
 }
 
-function requestWithProgress(
+function requestJsonWithProgress<T extends { success?: boolean; error?: string }>(
   url: string,
-  data: Blob,
-  contentType: string,
+  data: FormData,
   onProgress: (loaded: number, total: number) => void,
   register: (xhr: XMLHttpRequest) => void,
-): Promise<string> {
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     register(xhr);
-    xhr.open("PUT", url);
-    if (contentType) xhr.setRequestHeader("Content-Type", contentType);
-    xhr.upload.onprogress = (event) => onProgress(event.loaded, event.total || data.size);
+    xhr.open("POST", url);
+    xhr.responseType = "json";
+    xhr.timeout = 5 * 60 * 1000;
+    xhr.upload.onprogress = (event) => onProgress(event.loaded, event.total);
     xhr.onload = () => {
+      const response = xhr.response as T | null;
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(xhr.getResponseHeader("ETag") || xhr.getResponseHeader("etag") || "");
+        if (response?.success === false) reject(new Error(response.error || "上传失败"));
+        else resolve(response ?? ({} as T));
       } else {
-        reject(new Error(`对象存储返回 ${xhr.status}`));
+        reject(new Error(response?.error || `上传服务返回 ${xhr.status}`));
       }
     };
-    xhr.onerror = () => reject(new Error("网络连接中断"));
+    xhr.onerror = () => reject(new Error("无法连接上传服务，请检查网络后重试"));
+    xhr.ontimeout = () => reject(new Error("上传超时，请重试"));
     xhr.onabort = () => reject(new DOMException("上传已取消", "AbortError"));
     xhr.send(data);
   });
@@ -218,16 +221,26 @@ export default function UploadPage() {
     updateItem(itemId, { status: "cancelled", error: undefined });
   };
 
-  const uploadSingle = async (item: UploadItem, presign: PresignResponse) => {
-    if (!presign.uploadUrl) throw new Error("服务器未返回上传地址");
-    await withRetry(() => requestWithProgress(
-      presign.uploadUrl!,
-      item.file,
-      item.file.type || "application/octet-stream",
-      (loaded, total) => updateItem(item.id, { progress: Math.round(5 + (loaded / total) * 85) }),
+  const uploadSingle = async (item: UploadItem): Promise<PresignResponse> => {
+    const formData = new FormData();
+    formData.append("file", item.file);
+    formData.append("shopId", selectedShop);
+    formData.append("exportType", selectedExportType);
+    formData.append("idempotencyKey", item.idempotencyKey);
+    const result = await withRetry(() => requestJsonWithProgress<{ success: boolean; objectKey: string; newFileName: string; error?: string }>(
+      "/api/upload",
+      formData,
+      (loaded, total) => updateItem(item.id, { progress: Math.round(5 + (loaded / Math.max(total, 1)) * 85) }),
       (xhr) => registerRequest(item.id, xhr),
     ));
-    return [] as Array<{ partNumber: number; etag: string }>;
+    if (!result.success || !result.objectKey) throw new Error(result.error || "服务器上传失败");
+    return {
+      success: true,
+      uploadMode: "single",
+      objectKey: result.objectKey,
+      newFileName: result.newFileName,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
   };
 
   const uploadMultipart = async (item: UploadItem, presign: PresignResponse, restored: ResumeState | null) => {
@@ -251,14 +264,19 @@ export default function UploadPage() {
         const part = pending[cursor++];
         const start = (part.partNumber - 1) * presign.partSize!;
         const blob = item.file.slice(start, Math.min(start + presign.partSize!, item.file.size));
-        const etag = await withRetry(() => requestWithProgress(
-          part.uploadUrl,
-          blob,
-          "",
+        const formData = new FormData();
+        formData.append("chunk", blob, `${item.file.name}.part${part.partNumber}`);
+        formData.append("objectKey", presign.objectKey);
+        formData.append("uploadId", presign.uploadId || "");
+        formData.append("partNumber", String(part.partNumber));
+        const result = await withRetry(() => requestJsonWithProgress<{ success: boolean; etag: string; error?: string }>(
+          "/api/upload/part",
+          formData,
           (loaded) => { loadedByPart.set(part.partNumber, loaded); publishProgress(); },
           (xhr) => registerRequest(item.id, xhr),
         ));
-        if (!etag) throw new Error("对象存储未暴露 ETag，请检查存储 CORS 配置");
+        const etag = result.etag;
+        if (!etag) throw new Error("上传服务未返回分片标识，请重试");
         loadedByPart.delete(part.partNumber);
         completed.set(part.partNumber, etag);
         localStorage.setItem(resumeKey(item), JSON.stringify({
@@ -305,37 +323,41 @@ export default function UploadPage() {
         return;
       }
 
-      let restored: ResumeState | null = null;
-      const saved = localStorage.getItem(resumeKey(item));
-      if (saved) {
-        try {
-          const candidate = JSON.parse(saved) as ResumeState;
-          if (new Date(candidate.presign.expiresAt).getTime() > Date.now() + 60_000) restored = candidate;
-        } catch { localStorage.removeItem(resumeKey(item)); }
-      }
-
       let presign: PresignResponse;
-      if (restored) {
-        presign = restored.presign;
+      let parts: Array<{ partNumber: number; etag: string }>;
+      if (item.file.size <= policy.largeFileThreshold) {
+        localStorage.removeItem(resumeKey(item));
+        updateItem(item.id, { status: "uploading", progress: 5 });
+        presign = await uploadSingle(item);
+        parts = [];
       } else {
-        presign = await fetch("/api/upload/presign", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileName: item.file.name,
-            fileSize: item.file.size,
-            contentType: item.file.type || "application/octet-stream",
-            shopId: selectedShop,
-            exportType: selectedExportType || undefined,
-          }),
-        }).then((response) => response.json() as Promise<PresignResponse>);
+        let restored: ResumeState | null = null;
+        const saved = localStorage.getItem(resumeKey(item));
+        if (saved) {
+          try {
+            const candidate = JSON.parse(saved) as ResumeState;
+            if (new Date(candidate.presign.expiresAt).getTime() > Date.now() + 60_000) restored = candidate;
+          } catch { localStorage.removeItem(resumeKey(item)); }
+        }
+        if (restored) {
+          presign = restored.presign;
+        } else {
+          presign = await fetch("/api/upload/presign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: item.file.name,
+              fileSize: item.file.size,
+              contentType: item.file.type || "application/octet-stream",
+              shopId: selectedShop,
+              exportType: selectedExportType || undefined,
+            }),
+          }).then((response) => response.json() as Promise<PresignResponse>);
+        }
+        if (!presign.success) throw new Error(presign.error || "获取上传地址失败");
+        updateItem(item.id, { status: "uploading", progress: 5 });
+        parts = await uploadMultipart(item, presign, restored);
       }
-      if (!presign.success) throw new Error(presign.error || "获取上传地址失败");
-
-      updateItem(item.id, { status: "uploading", progress: 5 });
-      const parts = presign.uploadMode === "multipart"
-        ? await uploadMultipart(item, presign, restored)
-        : await uploadSingle(item, presign);
       updateItem(item.id, { status: "confirming", progress: 94 });
 
       const confirmResponse = await fetch("/api/upload/confirm", {
@@ -395,7 +417,7 @@ export default function UploadPage() {
             <CardTitle className="flex items-center gap-2"><Upload className="size-5" />上传文件</CardTitle>
             <CardDescription>
               单文件最大 {formatFileSize(policy.maxFileSize)}，单批最多 {policy.maxBatchSize} 个；
-              超过 {formatFileSize(policy.largeFileThreshold)} 自动使用对象存储多段直传。
+              超过 {formatFileSize(policy.largeFileThreshold)} 自动使用分片上传。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
