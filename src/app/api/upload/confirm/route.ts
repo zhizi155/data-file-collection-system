@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
-  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
@@ -10,6 +9,7 @@ import { getSessionUser } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
 import { parseDateFromFilename } from "@/lib/date-parser";
 import { createStorageS3Client } from "@/lib/storage-client";
+import { getStoredObjectSize } from "@/lib/storage-size";
 import { isMissingColumnError } from "@/lib/database-errors";
 
 const storage = new S3Storage({
@@ -146,13 +146,18 @@ export async function POST(request: NextRequest) {
       }));
     }
 
-    const head = await s3Client.send(new HeadObjectCommand({
-      Bucket: process.env.COZE_BUCKET_NAME,
-      Key: objectKey,
-    }));
-    if (Number(head.ContentLength) !== Number(fileSize)) {
+    const bucketName = process.env.COZE_BUCKET_NAME;
+    if (!bucketName) throw new Error("对象存储 bucket 未配置");
+    const storedObject = await getStoredObjectSize(s3Client, bucketName, objectKey, Number(fileSize));
+    if (storedObject.size !== Number(fileSize)) {
+      console.error("上传后大小不一致:", {
+        objectKey,
+        expectedSize: Number(fileSize),
+        actualSize: storedObject.size,
+        verificationSource: storedObject.source,
+      });
       await discardUnconfirmedUpload(objectKey);
-      return NextResponse.json({ error: "上传后大小校验失败，请重试" }, { status: 422 });
+      return NextResponse.json({ error: "文件传输不完整，本次上传已清理，请重新上传" }, { status: 422 });
     }
 
     const extension = originalName.includes(".") ? originalName.split(".").pop() ?? "" : "";
