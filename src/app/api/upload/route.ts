@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, validateUploadCandidate } from "@/lib/upload-policy";
@@ -92,14 +93,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, objectKey, newFileName: displayName });
   } catch (error) {
-    console.error(`同域上传文件失败 (${stage}):`, error);
+    const errorId = randomUUID();
+    console.error(`同域上传文件失败 (${stage}) [${errorId}]:`, error);
     const messages: Record<string, string> = {
       request: "上传请求解析失败，请重新选择文件",
       validation: "上传配置校验失败，请刷新页面后重试",
-      idempotency: "上传记录检查失败，请联系管理员检查数据库结构",
+      idempotency: "暂时无法核对上传记录，文件尚未上传。请稍后重试；若持续失败，请将错误编号提供给管理员",
       naming: "文件命名规则处理失败，请检查命名规则配置",
       storage: "对象存储写入失败，请联系管理员检查部署环境",
     };
-    return NextResponse.json({ error: messages[stage] || "上传服务暂时不可用，请稍后重试", stage }, { status: 500 });
+    const message = messages[stage] || "上传服务暂时不可用，请稍后重试";
+    return NextResponse.json({ error: `${message}（错误编号：${errorId}）`, stage, errorId }, { status: 500 });
   }
 }
