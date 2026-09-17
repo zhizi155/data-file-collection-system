@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
-  HeadObjectCommand,
-  S3Client,
 } from "@aws-sdk/client-s3";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
@@ -11,6 +9,10 @@ import { getSessionUser } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
 import { parseDateFromFilename } from "@/lib/date-parser";
 import { getUploadedFilesSchemaMode } from "@/lib/database-capabilities";
+import { createStorageS3Client } from "@/lib/storage-client";
+import { getStoredObjectSize } from "@/lib/storage-size";
+import { isMissingColumnError } from "@/lib/database-errors";
+import { resolveUploadContentType } from "@/lib/upload-policy";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -19,14 +21,6 @@ const storage = new S3Storage({
   bucketName: process.env.COZE_BUCKET_NAME,
   region: "cn-beijing",
 });
-
-function createS3Client() {
-  return new S3Client({
-    region: "cn-beijing",
-    endpoint: process.env.COZE_BUCKET_ENDPOINT_URL,
-    credentials: { accessKeyId: "", secretAccessKey: "" },
-  });
-}
 
 interface UploadedPart {
   partNumber: number;
@@ -52,7 +46,7 @@ interface ConfirmBody {
 async function discardUnconfirmedUpload(objectKey: string, uploadId?: string) {
   try {
     if (uploadId) {
-      await createS3Client().send(new AbortMultipartUploadCommand({
+      await createStorageS3Client().send(new AbortMultipartUploadCommand({
         Bucket: process.env.COZE_BUCKET_NAME,
         Key: objectKey,
         UploadId: uploadId,
@@ -92,13 +86,18 @@ export async function POST(request: NextRequest) {
     }
 
     const schemaMode = await getUploadedFilesSchemaMode(supabase);
-
-    if (idempotencyKey && schemaMode === "versioned") {
-      const { data: replay } = await supabase
+    let supportsIdempotency = Boolean(idempotencyKey) && schemaMode === "versioned";
+    if (idempotencyKey && supportsIdempotency) {
+      const { data: replay, error: replayError } = await supabase
         .from("uploaded_files")
         .select("id, original_name, display_name, stored_key, file_size, version")
         .eq("idempotency_key", idempotencyKey)
         .maybeSingle();
+      if (replayError) {
+        if (!isMissingColumnError(replayError, "idempotency_key")) throw replayError;
+        supportsIdempotency = false;
+        console.warn("数据库缺少 idempotency_key，上传确认将使用兼容模式");
+      }
       if (replay) {
         const fileUrl = await storage.generatePresignedUrl({ key: replay.stored_key, expireTime: 86400 * 7 });
         return NextResponse.json({
@@ -140,7 +139,7 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
 
-    const s3Client = createS3Client();
+    const s3Client = createStorageS3Client();
     if (uploadId) {
       const completedParts = (parts ?? [])
         .map((part) => ({ ETag: part.etag, PartNumber: part.partNumber }))
@@ -157,13 +156,18 @@ export async function POST(request: NextRequest) {
       }));
     }
 
-    const head = await s3Client.send(new HeadObjectCommand({
-      Bucket: process.env.COZE_BUCKET_NAME,
-      Key: objectKey,
-    }));
-    if (Number(head.ContentLength) !== Number(fileSize)) {
+    const bucketName = process.env.COZE_BUCKET_NAME;
+    if (!bucketName) throw new Error("对象存储 bucket 未配置");
+    const storedObject = await getStoredObjectSize(s3Client, bucketName, objectKey, Number(fileSize));
+    if (storedObject.size !== Number(fileSize)) {
+      console.error("上传后大小不一致:", {
+        objectKey,
+        expectedSize: Number(fileSize),
+        actualSize: storedObject.size,
+        verificationSource: storedObject.source,
+      });
       await discardUnconfirmedUpload(objectKey);
-      return NextResponse.json({ error: "上传后大小校验失败，请重试" }, { status: 422 });
+      return NextResponse.json({ error: "文件传输不完整，本次上传已清理，请重新上传" }, { status: 422 });
     }
 
     const extension = originalName.includes(".") ? originalName.split(".").pop() ?? "" : "";
@@ -190,19 +194,18 @@ export async function POST(request: NextRequest) {
       stored_key: objectKey,
       display_name: finalDisplayName,
       file_size: String(fileSize),
-      mime_type: mimeType || "application/octet-stream",
+      mime_type: resolveUploadContentType(originalName, mimeType || ""),
       rule_id: ruleId || null,
       shop_id: shopId,
       export_type: exportType || null,
     };
-    const insertPayload = schemaMode === "versioned"
+    const insertPayload: Record<string, unknown> = schemaMode === "versioned"
       ? {
         ...baseInsert,
         version: newVersion,
         is_current: true,
         uploaded_by: user?.userId || null,
         checksum: checksum || null,
-        idempotency_key: idempotencyKey || null,
         period_start: parsedPeriod?.start || null,
         period_end: parsedPeriod?.end || null,
         period_label: parsedPeriod?.label || null,
@@ -210,6 +213,7 @@ export async function POST(request: NextRequest) {
         parse_source: parsedPeriod?.source || "filename",
       }
       : baseInsert;
+    if (supportsIdempotency) insertPayload.idempotency_key = idempotencyKey;
 
     const { data: newFile, error: insertError } = await supabase
       .from("uploaded_files")
