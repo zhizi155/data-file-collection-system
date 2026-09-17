@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { S3Client, UploadPartCommand } from "@aws-sdk/client-s3";
+import { UploadPartCommand } from "@aws-sdk/client-s3";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy } from "@/lib/upload-policy";
-
-function createS3Client() {
-  return new S3Client({
-    region: "cn-beijing",
-    endpoint: process.env.COZE_BUCKET_ENDPOINT_URL,
-    credentials: { accessKeyId: "", secretAccessKey: "" },
-  });
-}
+import { createStorageS3Client } from "@/lib/storage-client";
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = Buffer.from(await chunk.arrayBuffer());
-    const result = await createS3Client().send(new UploadPartCommand({
+    const result = await createStorageS3Client().send(new UploadPartCommand({
       Bucket: process.env.COZE_BUCKET_NAME,
       Key: objectKey,
       UploadId: uploadId,

@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, validateUploadCandidate } from "@/lib/upload-policy";
 import { getUploadDisplayName, getUploadName } from "@/lib/upload-naming";
 
-function createS3Client() {
-  return new S3Client({
-    region: "cn-beijing",
-    endpoint: process.env.COZE_BUCKET_ENDPOINT_URL,
-    credentials: { accessKeyId: "", secretAccessKey: "" },
-  });
-}
+const storage = new S3Storage({
+  endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
+  accessKey: "",
+  secretKey: "",
+  bucketName: process.env.COZE_BUCKET_NAME,
+  region: "cn-beijing",
+});
 
 export async function POST(request: NextRequest) {
+  let stage = "request";
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -26,6 +27,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "上传参数无效，请刷新页面后重试" }, { status: 400 });
     }
 
+    stage = "validation";
     const supabase = getSupabaseClient();
     const { data: configRows } = await supabase.from("upload_config").select("key, value");
     const policy = configRows ? mergeUploadPolicy(configRows) : DEFAULT_UPLOAD_POLICY;
@@ -55,11 +57,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: errors.join("；") }, { status: 400 });
     }
 
-    const { data: replay } = await supabase
+    stage = "idempotency";
+    const { data: replay, error: replayError } = await supabase
       .from("uploaded_files")
       .select("stored_key, display_name")
       .eq("idempotency_key", idempotencyKey)
       .maybeSingle();
+    if (replayError) throw replayError;
     if (replay) {
       return NextResponse.json({
         success: true,
@@ -69,24 +73,31 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    stage = "naming";
     const generatedName = await getUploadName(file.name, shopId, exportType || undefined);
     const displayName = getUploadDisplayName(file.name, generatedName, exportType || undefined);
     const safeShop = shopId.replace(/[^a-zA-Z0-9_-]/g, "_");
     const safeFileName = generatedName.replace(/[^a-zA-Z0-9._\-\u4e00-\u9fff]/g, "_");
-    const objectKey = `uploads/${safeShop}/${idempotencyKey}_${safeFileName}`;
+    const requestedKey = `uploads/${safeShop}/${idempotencyKey}_${safeFileName}`;
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    await createS3Client().send(new PutObjectCommand({
-      Bucket: process.env.COZE_BUCKET_NAME,
-      Key: objectKey,
-      Body: buffer,
-      ContentLength: buffer.length,
-      ContentType: contentType,
-    }));
+    stage = "storage";
+    const objectKey = await storage.uploadFile({
+      fileContent: buffer,
+      fileName: requestedKey,
+      contentType,
+    });
 
     return NextResponse.json({ success: true, objectKey, newFileName: displayName });
   } catch (error) {
-    console.error("同域上传文件失败:", error);
-    return NextResponse.json({ error: "上传服务暂时不可用，请稍后重试" }, { status: 500 });
+    console.error(`同域上传文件失败 (${stage}):`, error);
+    const messages: Record<string, string> = {
+      request: "上传请求解析失败，请重新选择文件",
+      validation: "上传配置校验失败，请刷新页面后重试",
+      idempotency: "上传记录检查失败，请联系管理员检查数据库结构",
+      naming: "文件命名规则处理失败，请检查命名规则配置",
+      storage: "对象存储写入失败，请联系管理员检查部署环境",
+    };
+    return NextResponse.json({ error: messages[stage] || "上传服务暂时不可用，请稍后重试", stage }, { status: 500 });
   }
 }

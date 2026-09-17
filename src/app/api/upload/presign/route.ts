@@ -1,26 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   CreateMultipartUploadCommand,
-  PutObjectCommand,
-  S3Client,
 } from "@aws-sdk/client-s3";
 import crypto from "crypto";
 import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, validateUploadCandidate } from "@/lib/upload-policy";
 import { getUploadDisplayName, getUploadName } from "@/lib/upload-naming";
-
-// 创建S3客户端用于生成PUT预签名URL
-function createS3Client() {
-  return new S3Client({
-    region: "cn-beijing",
-    endpoint: process.env.COZE_BUCKET_ENDPOINT_URL,
-    credentials: {
-      accessKeyId: "",
-      secretAccessKey: "",
-    },
-  });
-}
+import { createStorageS3Client } from "@/lib/storage-client";
 
 // 创建上传任务。文件内容由同域上传接口转发，避免浏览器跨域请求对象存储。
 export async function POST(request: NextRequest) {
@@ -49,56 +35,38 @@ export async function POST(request: NextRequest) {
     const safeShop = String(shopId || "unassigned").replace(/[^a-zA-Z0-9_-]/g, "_");
     const objectKey = `uploads/${safeShop}/${Date.now()}_${crypto.randomUUID()}_${newFileName}`;
 
-    const s3Client = createS3Client();
-    const displayName = getUploadDisplayName(fileName, newFileName, exportType);
-
-    if (Number(fileSize) > policy.largeFileThreshold) {
-      const createResult = await s3Client.send(new CreateMultipartUploadCommand({
-        Bucket: process.env.COZE_BUCKET_NAME,
-        Key: objectKey,
-        ContentType: contentType,
-      }));
-      if (!createResult.UploadId) throw new Error("对象存储未返回 multipart uploadId");
-      const totalParts = Math.ceil(Number(fileSize) / policy.multipartPartSize);
-      if (totalParts > 10_000) {
-        return NextResponse.json({ error: "文件分片数量超过对象存储限制" }, { status: 400 });
-      }
-      const parts = Array.from({ length: totalParts }, (_, index) => ({ partNumber: index + 1 }));
-      return NextResponse.json({
-        success: true,
-        uploadMode: "multipart",
-        uploadId: createResult.UploadId,
-        objectKey,
-        newFileName: displayName,
-        partSize: policy.multipartPartSize,
-        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-        parts,
-      });
+    if (Number(fileSize) <= policy.largeFileThreshold) {
+      return NextResponse.json({ error: "普通文件请使用同域上传接口" }, { status: 400 });
     }
 
-    const command = new PutObjectCommand({
+    const s3Client = createStorageS3Client();
+    const displayName = getUploadDisplayName(fileName, newFileName, exportType);
+
+    const createResult = await s3Client.send(new CreateMultipartUploadCommand({
       Bucket: process.env.COZE_BUCKET_NAME,
       Key: objectKey,
       ContentType: contentType,
-    });
-    
-    // 生成PUT预签名URL（用于直接上传到S3）
-    const uploadUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: 3600, // 1小时
-    });
-
+    }));
+    if (!createResult.UploadId) throw new Error("对象存储未返回 multipart uploadId");
+    const totalParts = Math.ceil(Number(fileSize) / policy.multipartPartSize);
+    if (totalParts > 10_000) {
+      return NextResponse.json({ error: "文件分片数量超过对象存储限制" }, { status: 400 });
+    }
+    const parts = Array.from({ length: totalParts }, (_, index) => ({ partNumber: index + 1 }));
     return NextResponse.json({
       success: true,
-      uploadMode: "single",
-      uploadUrl,
+      uploadMode: "multipart",
+      uploadId: createResult.UploadId,
       objectKey,
       newFileName: displayName,
+      partSize: policy.multipartPartSize,
       expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      parts,
     });
   } catch (error) {
-    console.error("生成预签名URL失败:", error);
+    console.error("创建分片上传任务失败:", error);
     return NextResponse.json(
-      { error: "生成上传链接失败" },
+      { error: "创建分片上传任务失败" },
       { status: 500 }
     );
   }

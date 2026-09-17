@@ -3,13 +3,13 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   HeadObjectCommand,
-  S3Client,
 } from "@aws-sdk/client-s3";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { getSessionUser } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
 import { parseDateFromFilename } from "@/lib/date-parser";
+import { createStorageS3Client } from "@/lib/storage-client";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -18,14 +18,6 @@ const storage = new S3Storage({
   bucketName: process.env.COZE_BUCKET_NAME,
   region: "cn-beijing",
 });
-
-function createS3Client() {
-  return new S3Client({
-    region: "cn-beijing",
-    endpoint: process.env.COZE_BUCKET_ENDPOINT_URL,
-    credentials: { accessKeyId: "", secretAccessKey: "" },
-  });
-}
 
 interface UploadedPart {
   partNumber: number;
@@ -51,7 +43,7 @@ interface ConfirmBody {
 async function discardUnconfirmedUpload(objectKey: string, uploadId?: string) {
   try {
     if (uploadId) {
-      await createS3Client().send(new AbortMultipartUploadCommand({
+      await createStorageS3Client().send(new AbortMultipartUploadCommand({
         Bucket: process.env.COZE_BUCKET_NAME,
         Key: objectKey,
         UploadId: uploadId,
@@ -130,7 +122,7 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
 
-    const s3Client = createS3Client();
+    const s3Client = createStorageS3Client();
     if (uploadId) {
       const completedParts = (parts ?? [])
         .map((part) => ({ ETag: part.etag, PartNumber: part.partNumber }))
