@@ -11,6 +11,7 @@ import { parseDateFromFilename } from "@/lib/date-parser";
 import { createStorageS3Client } from "@/lib/storage-client";
 import { getStoredObjectSize } from "@/lib/storage-size";
 import { isMissingColumnError } from "@/lib/database-errors";
+import { resolveUploadContentType } from "@/lib/upload-policy";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -181,7 +182,7 @@ export async function POST(request: NextRequest) {
       stored_key: objectKey,
       display_name: finalDisplayName,
       file_size: String(fileSize),
-      mime_type: mimeType || "application/octet-stream",
+      mime_type: resolveUploadContentType(originalName, mimeType || ""),
       rule_id: ruleId || null,
       shop_id: shopId,
       export_type: exportType || null,

@@ -4,7 +4,7 @@ import {
   CreateMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import crypto from "crypto";
-import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, validateUploadCandidate } from "@/lib/upload-policy";
+import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, resolveUploadContentType, validateUploadCandidate } from "@/lib/upload-policy";
 import { getUploadDisplayName, getUploadName } from "@/lib/upload-naming";
 import { createStorageS3Client } from "@/lib/storage-client";
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseClient();
     const { data: configRows } = await supabase.from("upload_config").select("key, value");
     const policy = configRows ? mergeUploadPolicy(configRows) : DEFAULT_UPLOAD_POLICY;
-    const contentType = body.contentType || "application/octet-stream";
+    const contentType = resolveUploadContentType(fileName, body.contentType || "");
     const validationErrors = validateUploadCandidate({ fileName, fileSize: Number(fileSize), contentType }, policy);
     if (validationErrors.length > 0) {
       return NextResponse.json({ error: validationErrors.join("；") }, { status: 400 });

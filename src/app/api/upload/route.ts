@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
-import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, validateUploadCandidate } from "@/lib/upload-policy";
+import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, resolveUploadContentType, validateUploadCandidate } from "@/lib/upload-policy";
 import { getUploadDisplayName, getUploadName } from "@/lib/upload-naming";
 import { isMissingColumnError } from "@/lib/database-errors";
 
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseClient();
     const { data: configRows } = await supabase.from("upload_config").select("key, value");
     const policy = configRows ? mergeUploadPolicy(configRows) : DEFAULT_UPLOAD_POLICY;
-    const contentType = file.type || "application/octet-stream";
+    const contentType = resolveUploadContentType(file.name, file.type);
     const errors = validateUploadCandidate({
       fileName: file.name,
       fileSize: file.size,
