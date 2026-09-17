@@ -11,6 +11,7 @@ import {
   RefreshCw,
   ShoppingBag,
   Upload,
+  UserRound,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -437,6 +438,13 @@ export default function UploadPage() {
                   <SelectContent>{exportTypes.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
+              {currentShop && (
+                <div role="status" className="flex items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700 md:col-span-2">
+                  <UserRound className="size-4 shrink-0 text-blue-600" />
+                  <span className="text-slate-500">当前店铺负责人</span>
+                  <span className="font-medium text-slate-900">{currentShop.manager?.trim() || "未设置"}</span>
+                </div>
+              )}
             </div>
 
             <div
