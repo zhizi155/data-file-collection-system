@@ -10,6 +10,7 @@ import { getSessionUser } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
 import { parseDateFromFilename } from "@/lib/date-parser";
 import { createStorageS3Client } from "@/lib/storage-client";
+import { isMissingColumnError } from "@/lib/database-errors";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -82,12 +83,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少必要参数" }, { status: 400 });
     }
 
+    let supportsIdempotency = Boolean(idempotencyKey);
     if (idempotencyKey) {
-      const { data: replay } = await supabase
+      const { data: replay, error: replayError } = await supabase
         .from("uploaded_files")
         .select("id, original_name, display_name, stored_key, file_size, version")
         .eq("idempotency_key", idempotencyKey)
         .maybeSingle();
+      if (replayError) {
+        if (!isMissingColumnError(replayError, "idempotency_key")) throw replayError;
+        supportsIdempotency = false;
+        console.warn("数据库缺少 idempotency_key，上传确认将使用兼容模式");
+      }
       if (replay) {
         const fileUrl = await storage.generatePresignedUrl({ key: replay.stored_key, expireTime: 86400 * 7 });
         return NextResponse.json({
@@ -164,28 +171,30 @@ export async function POST(request: NextRequest) {
       if (supersedeError) throw supersedeError;
     }
 
+    const insertPayload: Record<string, unknown> = {
+      original_name: originalName,
+      stored_key: objectKey,
+      display_name: finalDisplayName,
+      file_size: String(fileSize),
+      mime_type: mimeType || "application/octet-stream",
+      rule_id: ruleId || null,
+      shop_id: shopId,
+      export_type: exportType || null,
+      version: newVersion,
+      is_current: true,
+      uploaded_by: user?.userId || null,
+      checksum: checksum || null,
+      period_start: parsedPeriod?.start || null,
+      period_end: parsedPeriod?.end || null,
+      period_label: parsedPeriod?.label || null,
+      parse_status: parsedPeriod?.status || "pending",
+      parse_source: parsedPeriod?.source || "filename",
+    };
+    if (supportsIdempotency) insertPayload.idempotency_key = idempotencyKey;
+
     const { data: newFile, error: insertError } = await supabase
       .from("uploaded_files")
-      .insert({
-        original_name: originalName,
-        stored_key: objectKey,
-        display_name: finalDisplayName,
-        file_size: String(fileSize),
-        mime_type: mimeType || "application/octet-stream",
-        rule_id: ruleId || null,
-        shop_id: shopId,
-        export_type: exportType || null,
-        version: newVersion,
-        is_current: true,
-        uploaded_by: user?.userId || null,
-        checksum: checksum || null,
-        idempotency_key: idempotencyKey || null,
-        period_start: parsedPeriod?.start || null,
-        period_end: parsedPeriod?.end || null,
-        period_label: parsedPeriod?.label || null,
-        parse_status: parsedPeriod?.status || "pending",
-        parse_source: parsedPeriod?.source || "filename",
-      })
+      .insert(insertPayload)
       .select()
       .single();
 

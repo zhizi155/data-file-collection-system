@@ -3,6 +3,7 @@ import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { DEFAULT_UPLOAD_POLICY, mergeUploadPolicy, validateUploadCandidate } from "@/lib/upload-policy";
 import { getUploadDisplayName, getUploadName } from "@/lib/upload-naming";
+import { isMissingColumnError } from "@/lib/database-errors";
 
 const storage = new S3Storage({
   endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
@@ -63,7 +64,8 @@ export async function POST(request: NextRequest) {
       .select("stored_key, display_name")
       .eq("idempotency_key", idempotencyKey)
       .maybeSingle();
-    if (replayError) throw replayError;
+    if (replayError && !isMissingColumnError(replayError, "idempotency_key")) throw replayError;
+    if (replayError) console.warn("数据库缺少 idempotency_key，跳过上传幂等查询");
     if (replay) {
       return NextResponse.json({
         success: true,
