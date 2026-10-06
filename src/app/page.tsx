@@ -16,10 +16,19 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchSelect, SearchSelectItem } from "@/components/ui/search-select";
+import { Textarea } from "@/components/ui/textarea";
 import type { UploadPolicy } from "@/lib/upload-policy";
 
 interface Shop {
@@ -81,6 +90,13 @@ interface PresignResponse {
 interface ResumeState {
   presign: PresignResponse;
   completedParts: Array<{ partNumber: number; etag: string }>;
+}
+
+interface NoFileConfirmation {
+  shopId: string;
+  exportType: string;
+  note: string;
+  updatedAt: string;
 }
 
 const DEFAULT_POLICY: UploadPolicy = {
@@ -161,6 +177,11 @@ export default function UploadPage() {
   const [policy, setPolicy] = useState<UploadPolicy>(DEFAULT_POLICY);
   const [dragActive, setDragActive] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [noFileDialogOpen, setNoFileDialogOpen] = useState(false);
+  const [noFileNote, setNoFileNote] = useState("");
+  const [noFileSubmitting, setNoFileSubmitting] = useState(false);
+  const [noFileError, setNoFileError] = useState("");
+  const [noFileConfirmation, setNoFileConfirmation] = useState<NoFileConfirmation | null>(null);
   const activeRequests = useRef(new Map<string, Set<XMLHttpRequest>>());
 
   useEffect(() => {
@@ -177,7 +198,12 @@ export default function UploadPage() {
   const exportTypes = useMemo(() => String(currentShop?.export_type || "")
     .split(",").map((item) => item.trim()).filter(Boolean), [currentShop]);
 
-  useEffect(() => setSelectedExportType(""), [selectedShop]);
+  useEffect(() => {
+    setSelectedExportType("");
+    setNoFileConfirmation(null);
+  }, [selectedShop]);
+
+  useEffect(() => setNoFileConfirmation(null), [selectedExportType]);
 
   const updateItem = useCallback((id: string, update: Partial<UploadItem>) => {
     setItems((current) => current.map((item) => item.id === id ? { ...item, ...update } : item));
@@ -185,6 +211,7 @@ export default function UploadPage() {
 
   const addFiles = useCallback((files: File[]) => {
     setPageError(null);
+    setNoFileConfirmation(null);
     setItems((current) => {
       const remaining = Math.max(0, policy.maxBatchSize - current.length);
       const accepted = files.slice(0, remaining);
@@ -200,6 +227,48 @@ export default function UploadPage() {
       }))];
     });
   }, [policy.maxBatchSize]);
+
+  const openNoFileConfirmation = () => {
+    setNoFileNote("该收集类型当前无文件产生");
+    setNoFileError("");
+    setNoFileDialogOpen(true);
+  };
+
+  const submitNoFileConfirmation = async () => {
+    const note = noFileNote.trim();
+    if (!selectedShop || !selectedExportType) {
+      setNoFileError("请先选择店铺和文件保存类型");
+      return;
+    }
+    if (!note) {
+      setNoFileError("请输入无文件说明");
+      return;
+    }
+
+    setNoFileSubmitting(true);
+    setNoFileError("");
+    try {
+      const response = await fetch("/api/collection-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shopId: selectedShop, exportType: selectedExportType, note }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "无文件确认失败");
+
+      setNoFileConfirmation({
+        shopId: selectedShop,
+        exportType: selectedExportType,
+        note,
+        updatedAt: result.data?.updatedAt || new Date().toISOString(),
+      });
+      setNoFileDialogOpen(false);
+    } catch (error) {
+      setNoFileError(error instanceof Error ? error.message : "无文件确认失败");
+    } finally {
+      setNoFileSubmitting(false);
+    }
+  };
 
   const resumeKey = (item: UploadItem) => [
     "data-upload-v2",
@@ -447,6 +516,41 @@ export default function UploadPage() {
               )}
             </div>
 
+            {currentShop && selectedExportType ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-medium text-amber-900">该收集类型没有文件产生？</p>
+                    <p className="mt-1 text-sm text-amber-700">
+                      业务员可提交“无文件确认”，管理员将在收集进度中看到备注和确认时间。
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
+                    disabled={busy || items.length > 0}
+                    onClick={openNoFileConfirmation}
+                  >
+                    提交无文件确认
+                  </Button>
+                </div>
+                {items.length > 0 ? (
+                  <p className="mt-2 text-xs text-amber-700">已有待上传文件时不能提交无文件确认。</p>
+                ) : null}
+                {noFileConfirmation
+                  && noFileConfirmation.shopId === selectedShop
+                  && noFileConfirmation.exportType === selectedExportType ? (
+                    <div role="status" className="mt-3 flex items-start gap-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+                      <span>
+                        已确认无文件：{noFileConfirmation.note}。管理员后台会显示此特殊记录。
+                      </span>
+                    </div>
+                  ) : null}
+              </div>
+            ) : null}
+
             <div
               className={`relative rounded-lg border-2 border-dashed p-7 text-center transition ${dragActive ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-white"}`}
               onDragEnter={(event) => { event.preventDefault(); setDragActive(true); }}
@@ -494,6 +598,55 @@ export default function UploadPage() {
             {items.length > 0 && <div className="flex flex-col gap-2 sm:flex-row"><Button className="flex-1" size="lg" disabled={busy || !selectedShop || (exportTypes.length > 0 && !selectedExportType)} onClick={startAll}>{busy ? "上传处理中…" : "开始上传队列"}</Button><Button variant="outline" disabled={busy} onClick={() => setItems([])}>清空队列</Button></div>}
           </CardContent>
         </Card>
+
+        <Dialog
+          open={noFileDialogOpen}
+          onOpenChange={(open) => {
+            if (!noFileSubmitting) {
+              setNoFileDialogOpen(open);
+              if (!open) setNoFileError("");
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>确认当前无文件</DialogTitle>
+              <DialogDescription>
+                {currentShop && selectedExportType
+                  ? `${currentShop.name} · ${selectedExportType}。提交后管理员将在后台看到这条特殊记录。`
+                  : "请先选择店铺和文件保存类型。"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              <Label htmlFor="noFileNote">无文件说明</Label>
+              <Textarea
+                id="noFileNote"
+                value={noFileNote}
+                onChange={(event) => {
+                  setNoFileNote(event.target.value);
+                  if (noFileError) setNoFileError("");
+                }}
+                maxLength={500}
+                rows={4}
+                placeholder="例如：平台本期未生成该类型文件"
+              />
+              <div className="flex justify-between text-xs">
+                <span className={noFileError ? "text-red-600" : "text-slate-500"}>
+                  {noFileError || "请确认确实没有文件后再提交。"}
+                </span>
+                <span className="text-slate-400">{noFileNote.length}/500</span>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNoFileDialogOpen(false)} disabled={noFileSubmitting}>
+                取消
+              </Button>
+              <Button onClick={submitNoFileConfirmation} disabled={noFileSubmitting}>
+                {noFileSubmitting ? "提交中..." : "确认无文件"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="text-center"><Link className="text-sm text-slate-500 hover:text-slate-800" href="/admin/login">进入数据文件收集系统管理后台</Link></div>
       </div>

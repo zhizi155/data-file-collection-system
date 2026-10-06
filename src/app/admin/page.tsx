@@ -120,6 +120,26 @@ interface UploadedFile {
   } | null;
 }
 
+interface CollectionProgressItem {
+  shopId: string;
+  shopName: string;
+  shopSite: string;
+  shopPlatform: string;
+  shopManager: string | null;
+  exportType: string;
+  uploadCount: number;
+  lastUploadTime: string | null;
+  specialNote: string | null;
+  noteUpdatedAt: string | null;
+}
+
+type CollectionStatus = "uploaded" | "missing" | "not_required";
+
+function getCollectionStatus(item: CollectionProgressItem): CollectionStatus {
+  if (item.uploadCount > 0) return "uploaded";
+  return item.specialNote ? "not_required" : "missing";
+}
+
 interface AdminAccount {
   id: string;
   username: string;
@@ -1734,11 +1754,11 @@ export default function AdminPage() {
                     <File className="w-5 h-5" />
                     数据文件收集进度
                   </CardTitle>
-                  <CardDescription>查看各店铺各保存类型的数据文件收集情况</CardDescription>
+                  <CardDescription>查看各店铺各保存类型的上传情况及业务员提交的无文件确认</CardDescription>
                 </div>
               </CardHeader>
               <CardContent>
-                <CollectionProgressTable />
+                <CollectionProgressTable canManageNotes={hasFullAccess} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -2470,23 +2490,18 @@ export default function AdminPage() {
 }
 
 // 数据文件收集进度表格组件
-function CollectionProgressTable() {
-  const [progressData, setProgressData] = useState<Array<{
-    shopId: string;
-    shopName: string;
-    shopSite: string;
-    shopPlatform: string;
-    shopManager: string | null;
-    exportType: string;
-    uploadCount: number;
-    lastUploadTime: string | null;
-  }>>([]);
+function CollectionProgressTable({ canManageNotes }: { canManageNotes: boolean }) {
+  const [progressData, setProgressData] = useState<CollectionProgressItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingNote, setEditingNote] = useState<CollectionProgressItem | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError] = useState("");
   // 筛选状态
   const [filterSite, setFilterSite] = useState<string[]>([]);
   const [filterPlatform, setFilterPlatform] = useState<string[]>([]);
   const [filterManager, setFilterManager] = useState<string[]>([]);
-  const [filterUploaded, setFilterUploaded] = useState<string>(""); // "" | "yes" | "no"
+  const [filterUploaded, setFilterUploaded] = useState<string>(""); // "" | "uploaded" | "missing" | "not_required"
   
   // 联动后的可用选项
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([]);
@@ -2500,89 +2515,96 @@ function CollectionProgressTable() {
   const loadProgressData = async () => {
     setLoading(true);
     try {
-      // 获取所有店铺
-      const shopsRes = await fetch("/api/shops?active=true");
-      const shopsData = await shopsRes.json();
-      
-      // 获取所有上传记录 - 使用 POST 避免 URL 过长
-      const filesRes = await fetch("/api/files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 10000 }),
-      });
-      const filesData = await filesRes.json();
-
-      if (shopsData.success && filesData.success) {
-        const shops = shopsData.data || [];
-        const files = filesData.data || [];
-        
-        // 统计数据
-        const progressMap: Record<string, {
-          shopId: string;
-          shopName: string;
-          shopSite: string;
-          shopPlatform: string;
-          shopManager: string | null;
-          exportType: string;
-          uploadCount: number;
-          lastUploadTime: string | null;
-        }> = {};
-
-        // 遍历每个店铺
-        shops.forEach((shop: Shop) => {
-          if (!shop.export_type) return;
-          
-          // 拆分保存类型
-          const exportTypes = shop.export_type.split(",").map((t: string) => t.trim()).filter(Boolean);
-          
-          exportTypes.forEach((exportType: string) => {
-            const key = `${shop.id}_${exportType}`;
-            
-            // 查找该店铺该类型的上传记录
-            const relatedFiles = files.filter((f: UploadedFile) => 
-              f.shop_id === shop.id && f.export_type === exportType
-            );
-
-            progressMap[key] = {
-              shopId: shop.id,
-              shopName: shop.name,
-              shopSite: shop.site,
-              shopPlatform: shop.platform,
-              shopManager: shop.manager || null,
-              exportType: exportType,
-              uploadCount: relatedFiles.length,
-              lastUploadTime: relatedFiles.length > 0 
-                ? relatedFiles.sort((a: UploadedFile, b: UploadedFile) => 
-                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                  )[0].created_at
-                : null,
-            };
-          });
-        });
-
-        // 转换为数组并排序
-        const progressList = Object.values(progressMap).sort((a, b) => {
-          // 按店铺名排序，再按保存类型排序
-          if (a.shopName !== b.shopName) {
-            return a.shopName.localeCompare(b.shopName);
-          }
-          return a.exportType.localeCompare(b.exportType);
-        });
-
-        setProgressData(progressList);
-        
-        // 初始化联动选项
-        const allPlatforms = [...new Set(progressList.map((d) => d.shopPlatform).filter(Boolean))].sort();
-        const allSites = [...new Set(progressList.map((d) => d.shopSite).filter(Boolean))].sort();
-        const allManagers = [...new Set(progressList.map((d) => d.shopManager).filter(Boolean) as string[])].sort();
-        setAvailablePlatforms(allPlatforms);
-        setAvailableSites(allSites);
-        setAvailableManagers(allManagers);
+      const progressRes = await fetch("/api/files/progress", { cache: "no-store" });
+      const progressResult = await progressRes.json();
+      if (!progressRes.ok || !progressResult.success) {
+        throw new Error(progressResult.error || "数据文件收集进度加载失败");
       }
+
+      const progressList = (progressResult.data || []) as CollectionProgressItem[];
+      setProgressData(progressList);
+
+      setAvailablePlatforms([...new Set(progressList.map((d) => d.shopPlatform).filter(Boolean))].sort());
+      setAvailableSites([...new Set(progressList.map((d) => d.shopSite).filter(Boolean))].sort());
+      setAvailableManagers([
+        ...new Set(progressList.map((d) => d.shopManager).filter(Boolean) as string[]),
+      ].sort());
     } catch (err) {
       console.error("加载数据文件收集进度失败:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openNoteEditor = (item: CollectionProgressItem) => {
+    setEditingNote(item);
+    setNoteText(item.specialNote || "");
+    setNoteError("");
+  };
+
+  const updateLocalNote = (note: string | null, updatedAt: string | null) => {
+    if (!editingNote) return;
+    setProgressData((current) => current.map((item) => (
+      item.shopId === editingNote.shopId && item.exportType === editingNote.exportType
+        ? { ...item, specialNote: note, noteUpdatedAt: updatedAt }
+        : item
+    )));
+  };
+
+  const saveSpecialNote = async () => {
+    if (!editingNote) return;
+    const note = noteText.trim();
+    if (!note) {
+      setNoteError("请输入备注内容");
+      return;
+    }
+
+    setNoteSaving(true);
+    setNoteError("");
+    try {
+      const response = await fetch("/api/collection-notes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: editingNote.shopId,
+          exportType: editingNote.exportType,
+          note,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "备注保存失败");
+
+      updateLocalNote(note, result.data?.updatedAt || new Date().toISOString());
+      setEditingNote(null);
+    } catch (error) {
+      setNoteError(error instanceof Error ? error.message : "备注保存失败");
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const clearSpecialNote = async () => {
+    if (!editingNote) return;
+    setNoteSaving(true);
+    setNoteError("");
+    try {
+      const response = await fetch("/api/collection-notes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: editingNote.shopId,
+          exportType: editingNote.exportType,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "备注清除失败");
+
+      updateLocalNote(null, null);
+      setEditingNote(null);
+    } catch (error) {
+      setNoteError(error instanceof Error ? error.message : "备注清除失败");
+    } finally {
+      setNoteSaving(false);
     }
   };
 
@@ -2602,8 +2624,7 @@ function CollectionProgressTable() {
       if (ignoredFacet !== "manager" && filterManager.length > 0 && !filterManager.includes(item.shopManager || "")) {
         return false;
       }
-      if (filterUploaded === "yes" && item.uploadCount === 0) return false;
-      if (filterUploaded === "no" && item.uploadCount > 0) return false;
+      if (filterUploaded && getCollectionStatus(item) !== filterUploaded) return false;
       return true;
     });
 
@@ -2646,13 +2667,8 @@ function CollectionProgressTable() {
         return false;
       }
     }
-    // 是否上传筛选
-    if (filterUploaded === "yes" && item.uploadCount === 0) {
-      return false;
-    }
-    if (filterUploaded === "no" && item.uploadCount > 0) {
-      return false;
-    }
+    // 收集状态筛选
+    if (filterUploaded && getCollectionStatus(item) !== filterUploaded) return false;
     return true;
   });
 
@@ -2707,12 +2723,13 @@ function CollectionProgressTable() {
         <SearchSelect
           value={filterUploaded}
           onValueChange={(val) => setFilterUploaded(typeof val === 'string' ? val : '')}
-          placeholder="是否上传"
+          placeholder="收集状态"
           className="min-w-[120px]"
           showClearButton
         >
-          <SearchSelectItem value="yes">已上传</SearchSelectItem>
-          <SearchSelectItem value="no">未上传</SearchSelectItem>
+          <SearchSelectItem value="uploaded">已上传</SearchSelectItem>
+          <SearchSelectItem value="missing">未上传</SearchSelectItem>
+          <SearchSelectItem value="not_required">无文件确认</SearchSelectItem>
         </SearchSelect>
         {(filterSite.length > 0 || filterPlatform.length > 0 || filterManager.length > 0 || filterUploaded) && (
           <Button
@@ -2744,9 +2761,11 @@ function CollectionProgressTable() {
                 <TableHead>平台</TableHead>
                 <TableHead>负责人</TableHead>
                 <TableHead>文件保存类型</TableHead>
-                <TableHead>是否上传</TableHead>
+                <TableHead>收集状态</TableHead>
                 <TableHead>上传数量</TableHead>
                 <TableHead>最后上传时间</TableHead>
+                <TableHead>特殊备注</TableHead>
+                {canManageNotes ? <TableHead className="text-right">操作</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -2774,18 +2793,100 @@ function CollectionProgressTable() {
                   <TableCell>
                     {item.uploadCount > 0 ? (
                       <Badge variant="default" className="bg-green-500">已上传</Badge>
+                    ) : item.specialNote ? (
+                      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                        无文件确认
+                      </Badge>
                     ) : (
                       <Badge variant="destructive">未上传</Badge>
                     )}
                   </TableCell>
                   <TableCell className="font-mono">{item.uploadCount}</TableCell>
                   <TableCell className="text-sm text-slate-500">{formatDate(item.lastUploadTime)}</TableCell>
+                  <TableCell className="max-w-[280px]">
+                    {item.specialNote ? (
+                      <div title={item.specialNote}>
+                        <span className="block truncate text-sm text-amber-700">{item.specialNote}</span>
+                        <span className="mt-0.5 block text-xs text-slate-400">
+                          确认于 {formatDate(item.noteUpdatedAt)}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-slate-400">-</span>
+                    )}
+                  </TableCell>
+                  {canManageNotes && item.specialNote ? (
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => openNoteEditor(item)}>
+                        <Edit2 className="mr-1 h-3.5 w-3.5" />
+                        管理记录
+                      </Button>
+                    </TableCell>
+                  ) : canManageNotes ? <TableCell /> : null}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       )}
+
+      <Dialog
+        open={editingNote !== null}
+        onOpenChange={(open) => {
+          if (!open && !noteSaving) {
+            setEditingNote(null);
+            setNoteError("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>管理无文件确认</DialogTitle>
+            <DialogDescription>
+              {editingNote
+                ? `${editingNote.shopName} · ${editingNote.exportType}。填写后，未上传状态将显示为“无文件确认”。`
+                : "为没有文件产生的收集类型添加说明。"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <Label htmlFor="collectionSpecialNote">备注内容</Label>
+            <Textarea
+              id="collectionSpecialNote"
+              value={noteText}
+              onChange={(event) => {
+                setNoteText(event.target.value);
+                if (noteError) setNoteError("");
+              }}
+              maxLength={500}
+              rows={4}
+              placeholder="例如：本期平台未生成该类型文件"
+            />
+            <div className="flex justify-between text-xs">
+              <span className={noteError ? "text-red-500" : "text-slate-500"}>
+                {noteError || "仅用于区分无文件确认与尚未上传。"}
+              </span>
+              <span className="text-slate-400">{noteText.length}/500</span>
+            </div>
+          </div>
+          <DialogFooter className="sm:justify-between">
+            <div>
+              {editingNote?.specialNote ? (
+                <Button variant="destructive" onClick={clearSpecialNote} disabled={noteSaving}>
+                  清除备注
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setEditingNote(null)} disabled={noteSaving}>
+                取消
+              </Button>
+              <Button onClick={saveSpecialNote} disabled={noteSaving}>
+                {noteSaving ? "保存中..." : "保存备注"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

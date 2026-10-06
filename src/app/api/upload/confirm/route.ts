@@ -7,6 +7,7 @@ import { S3Storage } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { getSessionUser } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
+import { clearCollectionNote } from "@/lib/collection-notes";
 import { parseDateFromFilename } from "@/lib/date-parser";
 import { getUploadedFilesSchemaMode } from "@/lib/database-capabilities";
 import { createStorageS3Client } from "@/lib/storage-client";
@@ -238,6 +239,12 @@ export async function POST(request: NextRequest) {
       details: { originalName, displayName: finalDisplayName, fileSize, shopId, exportType, version: newVersion },
       result: "success",
     });
+
+    if (shopId && exportType) {
+      clearCollectionNote(supabase, shopId, exportType).catch((error) => {
+        console.warn("清除已上传类型的无文件确认失败:", error);
+      });
+    }
 
     const fileUrl = await storage.generatePresignedUrl({ key: objectKey, expireTime: 86400 * 7 });
     return NextResponse.json({

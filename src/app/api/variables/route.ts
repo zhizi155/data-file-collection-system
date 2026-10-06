@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { requirePermission } from "@/lib/rbac";
+import { COLLECTION_NOTE_PREFIX } from "@/lib/collection-notes";
 
 // 获取所有自定义变量
 export async function GET(request: NextRequest) {
@@ -11,6 +12,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabase
       .from("custom_variables")
       .select("*")
+      .not("name", "like", `${COLLECTION_NOTE_PREFIX}%`)
       .order("created_at", { ascending: false });
 
     if (error) {

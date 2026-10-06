@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { COLLECTION_NOTE_PREFIX } from "@/lib/collection-notes";
 
 export async function getUploadName(
   fileName: string,
@@ -76,7 +77,8 @@ export async function getUploadName(
   const { data: variables } = await supabase
     .from("custom_variables")
     .select("name, value")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .not("name", "like", `${COLLECTION_NOTE_PREFIX}%`);
   for (const variable of variables ?? []) replacements[variable.name] = variable.value;
 
   let newName = pattern;
