@@ -2497,6 +2497,8 @@ function CollectionProgressTable({ canManageNotes }: { canManageNotes: boolean }
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteError, setNoteError] = useState("");
+  const [progressExporting, setProgressExporting] = useState(false);
+  const [progressExportError, setProgressExportError] = useState("");
   // 筛选状态
   const [filterSite, setFilterSite] = useState<string[]>([]);
   const [filterPlatform, setFilterPlatform] = useState<string[]>([]);
@@ -2672,6 +2674,46 @@ function CollectionProgressTable({ canManageNotes }: { canManageNotes: boolean }
     return true;
   });
 
+  const exportProgress = async () => {
+    setProgressExporting(true);
+    setProgressExportError("");
+    try {
+      const searchParams = new URLSearchParams();
+      filterSite.forEach((value) => searchParams.append("site", value));
+      filterPlatform.forEach((value) => searchParams.append("platform", value));
+      filterManager.forEach((value) => searchParams.append("manager", value));
+      if (filterUploaded) searchParams.set("status", filterUploaded);
+
+      const query = searchParams.toString();
+      const response = await fetch(`/api/files/progress/export${query ? `?${query}` : ""}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || "收集进度导出失败");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+      const filename = encodedFilename
+        ? decodeURIComponent(encodedFilename)
+        : `数据文件收集进度_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setProgressExportError(error instanceof Error ? error.message : "收集进度导出失败");
+    } finally {
+      setProgressExporting(false);
+    }
+  };
+
   if (loading) {
     return <div className="text-center py-8 text-slate-500">加载中...</div>;
   }
@@ -2745,7 +2787,25 @@ function CollectionProgressTable({ canManageNotes }: { canManageNotes: boolean }
             清除筛选
           </Button>
         )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto gap-2"
+          onClick={exportProgress}
+          disabled={progressExporting || filteredData.length === 0}
+        >
+          {progressExporting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          {progressExporting ? "导出中..." : `导出当前进度 (${filteredData.length})`}
+        </Button>
       </div>
+
+      {progressExportError ? (
+        <div className="text-sm text-red-500" role="alert">{progressExportError}</div>
+      ) : null}
 
       {filteredData.length === 0 ? (
         <div className="text-center py-8 text-slate-500">
