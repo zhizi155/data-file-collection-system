@@ -29,6 +29,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchSelect, SearchSelectItem } from "@/components/ui/search-select";
 import { Textarea } from "@/components/ui/textarea";
+import { selectSingleFile } from "@/lib/single-file-selection";
 import type { UploadPolicy } from "@/lib/upload-policy";
 
 interface Shop {
@@ -213,20 +214,21 @@ export default function UploadPage() {
     setPageError(null);
     setNoFileConfirmation(null);
     setItems((current) => {
-      const remaining = Math.max(0, policy.maxBatchSize - current.length);
-      const accepted = files.slice(0, remaining);
-      if (accepted.length < files.length) {
-        window.setTimeout(() => setPageError(`单批最多 ${policy.maxBatchSize} 个文件`), 0);
+      const selection = selectSingleFile(files, current.length);
+      if (selection.error) {
+        window.setTimeout(() => setPageError(selection.error), 0);
+        return current;
       }
-      return [...current, ...accepted.map((file) => ({
+      if (!selection.file) return current;
+      return [{
         id: crypto.randomUUID(),
         idempotencyKey: crypto.randomUUID(),
-        file,
+        file: selection.file,
         status: "ready" as const,
         progress: 0,
-      }))];
+      }];
     });
-  }, [policy.maxBatchSize]);
+  }, []);
 
   const openNoFileConfirmation = () => {
     setNoFileNote("该收集类型当前无文件产生");
@@ -479,15 +481,16 @@ export default function UploadPage() {
       <div className="mx-auto max-w-3xl space-y-6">
         <header className="text-center">
           <h1 className="text-3xl font-bold text-slate-900">数据文件收集系统</h1>
-          <p className="mt-2 text-slate-600">批量上传、断点续传和文件版本管理</p>
+          <p className="mt-2 text-slate-600">单文件上传、断点续传和文件版本管理</p>
         </header>
 
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Upload className="size-5" />上传文件</CardTitle>
             <CardDescription>
-              单文件最大 {formatFileSize(policy.maxFileSize)}，单批最多 {policy.maxBatchSize} 个；
-              超过 {formatFileSize(policy.largeFileThreshold)} 自动使用分片上传。
+              每次只能上传 1 个文件，单文件最大 {formatFileSize(policy.maxFileSize)}；
+              超过 {formatFileSize(policy.largeFileThreshold)} 自动使用分片上传。<br />
+              有多个文件时，请先压缩成 RAR 或 ZIP 压缩包再上传。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -561,13 +564,12 @@ export default function UploadPage() {
               <input
                 className="absolute inset-0 size-full cursor-pointer opacity-0"
                 type="file"
-                multiple
                 aria-label="选择要上传的数据文件"
-                disabled={busy || items.length >= policy.maxBatchSize}
+                disabled={busy || items.length > 0}
                 onChange={(event) => { addFiles([...(event.target.files ?? [])]); event.target.value = ""; }}
               />
               <Upload className="mx-auto size-10 text-slate-400" />
-              <p className="mt-3 font-medium text-slate-700">拖拽文件到这里，或点击选择多个文件</p>
+              <p className="mt-3 font-medium text-slate-700">拖拽 1 个文件到这里，或点击选择文件</p>
               <p className="mt-1 text-xs text-slate-500">上传前会校验大小、类型、店铺配置和重复版本</p>
             </div>
 
@@ -595,7 +597,7 @@ export default function UploadPage() {
               ))}
             </div>
 
-            {items.length > 0 && <div className="flex flex-col gap-2 sm:flex-row"><Button className="flex-1" size="lg" disabled={busy || !selectedShop || (exportTypes.length > 0 && !selectedExportType)} onClick={startAll}>{busy ? "上传处理中…" : "开始上传队列"}</Button><Button variant="outline" disabled={busy} onClick={() => setItems([])}>清空队列</Button></div>}
+            {items.length > 0 && <div className="flex flex-col gap-2 sm:flex-row"><Button className="flex-1" size="lg" disabled={busy || !selectedShop || (exportTypes.length > 0 && !selectedExportType)} onClick={startAll}>{busy ? "上传处理中…" : "开始上传"}</Button><Button variant="outline" disabled={busy} onClick={() => setItems([])}>移除文件</Button></div>}
           </CardContent>
         </Card>
 

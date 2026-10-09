@@ -18,7 +18,11 @@ export async function POST(request: NextRequest) {
   let stage = "request";
   try {
     const formData = await request.formData();
-    const file = formData.get("file");
+    const fileEntries = formData.getAll("file");
+    if (fileEntries.length > 1) {
+      return NextResponse.json({ error: "每次只能上传 1 个文件" }, { status: 400 });
+    }
+    const file = fileEntries[0];
     const shopId = String(formData.get("shopId") || "");
     const exportType = String(formData.get("exportType") || "");
     const idempotencyKey = String(formData.get("idempotencyKey") || "");
